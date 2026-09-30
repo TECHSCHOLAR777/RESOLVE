@@ -15,7 +15,6 @@ import {
   Maximize2,
   Minimize2,
   ZoomIn,
-  ZoomOut,
   Map,
   FileImage,
   Layers,
@@ -561,7 +560,7 @@ export default function App() {
                           className="w-full h-full object-cover pointer-events-none transition-transform duration-200"
                           style={{
                             transform: `scale(${zoomLevel})`,
-                            filter: 'contrast(108%) saturate(106%) sharpness(1.5)',
+                            filter: 'brightness(102%) contrast(112%) saturate(108%)',
                           }}
                         />
                       </div>
