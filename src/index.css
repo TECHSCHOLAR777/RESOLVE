@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-surface: #f9f9ff;
+  --color-surface-low: #f1f3ff;
+  --color-surface-container: #e9edff;
+  --color-surface-high: #e2e8fb;
+  --color-surface-highest: #dde2f5;
+  --color-primary: #003ebb;
+  --color-primary-container: #1254eb;
+  --color-cream: #f9ecc2;
+  --color-navy: #0d2e68;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Custom scrollbars for desktop GIS feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(115, 118, 135, 0.25);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(18, 84, 235, 0.4);
+}
+

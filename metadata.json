@@ -1,0 +1,6 @@
+{
+  "name": "resolve | Satellite Imagery Enhancer",
+  "description": "High-fidelity super-resolution and enhancement workspace for satellite and aerial imagery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
