@@ -7,3 +7,7 @@ coverage/
 .env*
 !.env.example
 Research_Material/
+/backend/.venv/
+/backend/models/
+__pycache__/
+.pytest_cache/
