@@ -27,18 +27,17 @@ import {
   Square,
   X,
 } from 'lucide-react';
-
-// Default agricultural road corridor scene matching screen.png
-const DEFAULT_IMAGE =
-  'https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Agricultural_landscape_in_Belgium_aerial_view.jpg/1280px-Agricultural_landscape_in_Belgium_aerial_view.jpg';
+import { absUrl, listSamples, outputTifUrl, superresSample, superresUpload, type SuperresResult } from './api';
 
 export default function App() {
   const [activeNav, setActiveNav] = useState<'enhance' | 'recent' | 'settings'>('enhance');
   const [viewMode, setViewMode] = useState<'side-by-side' | 'split'>('side-by-side');
-  
+
   // Imagery state
-  const [imageName, setImageName] = useState<string>('Agricultural Farmland & Road Corridor Scene');
-  const [imageUrl, setImageUrl] = useState<string>(DEFAULT_IMAGE);
+  const [imageName, setImageName] = useState<string>('');
+  const [result, setResult] = useState<SuperresResult | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [hotlinkInput, setHotlinkInput] = useState<string>('');
   const [showHotlinkInput, setShowHotlinkInput] = useState<boolean>(false);
@@ -50,21 +49,58 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const viewerContainerRef = useRef<HTMLDivElement>(null);
+  const requestSeq = useRef(0);
+
+  const inputSrc = result ? absUrl(result.input.png) : undefined;
+  const outputSrc = result ? absUrl(result.output.png) : undefined;
+
+  // Run one backend job; only the latest request may update the UI.
+  const runJob = async (label: string, job: () => Promise<SuperresResult>) => {
+    const seq = ++requestSeq.current;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await job();
+      if (seq !== requestSeq.current) return;
+      setResult(res);
+      setImageName(label);
+      setZoomLevel(1);
+    } catch (err) {
+      if (seq !== requestSeq.current) return;
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (seq === requestSeq.current) setIsLoading(false);
+    }
+  };
+
+  // Load the first bundled sample on startup.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const samples = await listSamples();
+        if (cancelled) return;
+        if (samples.length === 0) {
+          setIsLoading(false);
+          setError('No bundled samples available');
+          return;
+        }
+        const first = samples[0];
+        await runJob(first.name, () => superresSample(first.id));
+      } catch (err) {
+        if (cancelled) return;
+        setIsLoading(false);
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Handle local file upload
   const handleFile = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload a valid image file (GeoTIFF, TIFF, PNG, or JPEG).');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setImageUrl(result);
-      setImageName(file.name.replace(/\.[^/.]+$/, ''));
-      setZoomLevel(1);
-    };
-    reader.readAsDataURL(file);
+    void runJob(file.name.replace(/\.[^/.]+$/, ''), () => superresUpload(file));
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -75,14 +111,27 @@ export default function App() {
     }
   };
 
+  // GeoTIFFs cannot be hotlinked as plain images: fetch the URL as a blob and upload it.
   const handleHotlinkSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!hotlinkInput.trim()) return;
-    setImageUrl(hotlinkInput.trim());
-    setImageName('Hotlinked Remote Scene');
+    const url = hotlinkInput.trim();
+    if (!url) return;
     setShowHotlinkInput(false);
     setHotlinkInput('');
-    setZoomLevel(1);
+    const base = decodeURIComponent(url.split(/[?#]/)[0].split('/').pop() || '') || 'remote_scene.tif';
+    void runJob(base.replace(/\.[^/.]+$/, ''), async () => {
+      let blob: Blob;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Could not fetch the URL (${res.status})`);
+        blob = await res.blob();
+      } catch (err) {
+        throw err instanceof Error && err.message.startsWith('Could not')
+          ? err
+          : new Error('Could not fetch the URL (blocked or unreachable)');
+      }
+      return superresUpload(new File([blob], /\.tiff?$/i.test(base) ? base : `${base}.tif`));
+    });
   };
 
   // Fullscreen toggle
@@ -97,16 +146,25 @@ export default function App() {
     }
   };
 
-  // Download enhanced image
-  const handleSaveImagery = () => {
-    const link = document.createElement('a');
-    link.href = imageUrl;
-    link.download = `${imageName}_enhanced_2.5m.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 2500);
+  // Download the real 2.5 m GeoTIFF
+  const handleSaveImagery = async () => {
+    if (!result) return;
+    try {
+      const res = await fetch(outputTifUrl(result));
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      const href = URL.createObjectURL(await res.blob());
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = `${imageName || 'scene'}_enhanced_2.5m.tif`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(href);
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   // Handle split slider drag
@@ -255,7 +313,8 @@ export default function App() {
               {/* Export GeoTIFF Button */}
               <button
                 onClick={handleSaveImagery}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-xs transition-colors"
+                disabled={!result || isLoading}
+                className="disabled:opacity-60 flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-xs transition-colors"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Export GeoTIFF</span>
@@ -316,7 +375,7 @@ export default function App() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*"
+                    accept=".tif,.tiff,image/tiff"
                     onChange={(e) => {
                       if (e.target.files && e.target.files[0]) {
                         handleFile(e.target.files[0]);
@@ -505,7 +564,7 @@ export default function App() {
               </div>
 
               {/* Imagery Display Viewport */}
-              <div className="relative w-full rounded-lg overflow-hidden bg-[#10141F] min-h-[480px] lg:min-h-[520px] flex items-center justify-center select-none">
+              <div className={`relative w-full rounded-lg overflow-hidden bg-[#10141F] min-h-[480px] lg:min-h-[520px] flex items-center justify-center select-none ${isLoading ? 'animate-pulse' : ''}`}>
                 {viewMode === 'side-by-side' ? (
                   /* Side-by-Side Dual Viewports */
                   <div className="w-full h-full grid grid-cols-2 gap-2 p-2">
@@ -522,13 +581,12 @@ export default function App() {
                       {/* Center Image: Simulated native 10m resolution (blur/pixelate) */}
                       <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
                         <img
-                          src={imageUrl}
+                          src={inputSrc}
                           alt="Original Satellite Input"
-                          referrerPolicy="no-referrer"
                           className="w-full h-full object-cover pointer-events-none transition-transform duration-200"
                           style={{
                             transform: `scale(${zoomLevel})`,
-                            filter: 'blur(1.6px) brightness(96%) contrast(92%)',
+                            imageRendering: 'pixelated',
                           }}
                         />
                       </div>
@@ -554,13 +612,11 @@ export default function App() {
                       {/* Center Image: Super-resolved crisp detail */}
                       <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
                         <img
-                          src={imageUrl}
+                          src={outputSrc}
                           alt="Enhanced Satellite Output"
-                          referrerPolicy="no-referrer"
                           className="w-full h-full object-cover pointer-events-none transition-transform duration-200"
                           style={{
                             transform: `scale(${zoomLevel})`,
-                            filter: 'brightness(102%) contrast(112%) saturate(108%)',
                           }}
                         />
                       </div>
@@ -587,13 +643,11 @@ export default function App() {
                     {/* Background: Enhanced Image */}
                     <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
                       <img
-                        src={imageUrl}
+                        src={outputSrc}
                         alt="Enhanced Satellite View"
-                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover pointer-events-none"
                         style={{
                           transform: `scale(${zoomLevel})`,
-                          filter: 'contrast(108%) saturate(106%)',
                         }}
                       />
                     </div>
@@ -612,13 +666,12 @@ export default function App() {
                       style={{ clipPath: `inset(0 ${100 - splitPos}% 0 0)` }}
                     >
                       <img
-                        src={imageUrl}
+                        src={inputSrc}
                         alt="Original Satellite View"
-                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover pointer-events-none"
                         style={{
                           transform: `scale(${zoomLevel})`,
-                          filter: 'blur(1.6px) brightness(96%) contrast(92%)',
+                          imageRendering: 'pixelated',
                         }}
                       />
 
@@ -660,7 +713,8 @@ export default function App() {
               <div className="mt-3.5 flex items-center gap-3">
                 <button
                   onClick={handleSaveImagery}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-xs transition-colors"
+                  disabled={!result || isLoading}
+                  className="disabled:opacity-60 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-xs transition-colors"
                 >
                   {isSaved ? (
                     <>
@@ -675,8 +729,8 @@ export default function App() {
                   )}
                 </button>
 
-                <span className="text-[11px] text-slate-500">
-                  Ready for GIS land-cover classification and vectorization
+                <span className={`text-[11px] ${error ? 'text-rose-600' : 'text-slate-500'}`}>
+                  {error ?? 'Ready for GIS land-cover classification and vectorization'}
                 </span>
               </div>
             </div>

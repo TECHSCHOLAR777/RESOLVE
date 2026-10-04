@@ -1,0 +1,19 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1
+sen2sr==0.8.5
+mlstac==0.4.9
+einops==0.8.2
+timm==1.0.30
+safetensors==0.8.0
+matplotlib==3.11.2
+numpy==2.4.6
+rasterio==1.4.4
+pillow==12.3.0
+fastapi==0.142.2
+uvicorn==0.54.0
+python-multipart==0.0.32
+# dev / sample fetching / tests
+pytest==9.1.1
+httpx==0.28.1
+pystac-client==0.9.0
+planetary-computer==1.0.0

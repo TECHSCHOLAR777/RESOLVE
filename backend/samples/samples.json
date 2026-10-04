@@ -1,0 +1,50 @@
+[
+  {
+    "id": "punjab-farmland",
+    "name": "Punjab farmland",
+    "location": "Near Ludhiana, Punjab",
+    "date": "2025-03-22",
+    "width": 256,
+    "height": 256,
+    "source_item": "S2C_MSIL2A_20250322T053701_R005_T43REQ_20250322T104614",
+    "processing_baseline": "05.11",
+    "offset_applied_dn": 1000,
+    "stored_as": "float32 reflectance 0-1 (offset removed, /10000)"
+  },
+  {
+    "id": "delhi-city",
+    "name": "Delhi urban",
+    "location": "Central Delhi",
+    "date": "2025-03-24",
+    "width": 256,
+    "height": 256,
+    "source_item": "S2B_MSIL2A_20250324T052649_R105_T43RGM_20250324T074123",
+    "processing_baseline": "05.11",
+    "offset_applied_dn": 1000,
+    "stored_as": "float32 reflectance 0-1 (offset removed, /10000)"
+  },
+  {
+    "id": "brahmaputra-assam",
+    "name": "Brahmaputra floodplain",
+    "location": "Near Majuli, Assam",
+    "date": "2025-02-26",
+    "width": 256,
+    "height": 256,
+    "source_item": "S2C_MSIL2A_20250226T041801_R090_T46RFQ_20250226T075913",
+    "processing_baseline": "05.11",
+    "offset_applied_dn": 1000,
+    "stored_as": "float32 reflectance 0-1 (offset removed, /10000)"
+  },
+  {
+    "id": "sikkim-hills",
+    "name": "Sikkim hills",
+    "location": "Near Gangtok, Sikkim",
+    "date": "2025-01-18",
+    "width": 256,
+    "height": 256,
+    "source_item": "S2B_MSIL2A_20250118T044029_R033_T45RXL_20250118T064748",
+    "processing_baseline": "05.11",
+    "offset_applied_dn": 1000,
+    "stored_as": "float32 reflectance 0-1 (offset removed, /10000)"
+  }
+]
