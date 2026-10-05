@@ -1,11 +1,14 @@
 """RESOLVE prototype API: SEN2SR-Lite RGBN x4 super-resolution of Sentinel-2 10 m tiles."""
 import io
 import json
+import os
 import re
 import shutil
 import tempfile
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +21,9 @@ from rasterio.errors import RasterioIOError
 from rasterio.io import MemoryFile
 from rasterio.warp import transform_bounds
 
-from .model import MODEL_NAME, SCALE, STRIDE, TILE, get_model, padded_size, super_resolve
+from . import alphaearth, layers as L
+from .lock import lock as measurement_lock
+from .model import MODEL_NAME, SCALE, STRIDE, TILE, get_model, padded_size, super_resolve_features, super_resolve_tta
 
 SAMPLES_DIR = Path(__file__).resolve().parents[1] / "samples"
 RESULTS_DIR = Path(tempfile.gettempdir()) / "resolve_results"
@@ -38,6 +43,7 @@ def load_samples() -> list[dict]:
 
 @app.get("/api/health")
 def health():
+    prewarm_alphaearth()
     return {"status": "ok", "model": MODEL_NAME, "device": "cpu"}
 
 
@@ -115,7 +121,7 @@ def to_png(rgb: np.ndarray, lo: float, hi: float) -> bytes:
     img = np.clip((rgb - lo) / max(hi - lo, 1e-6), 0, 1)
     img = (img.transpose(1, 2, 0) * 255).round().astype("uint8")
     buf = io.BytesIO()
-    Image.fromarray(img, "RGB").save(buf, "PNG")
+    Image.fromarray(img, "RGB").save(buf, "PNG", compress_level=1)
     return buf.getvalue()
 
 
@@ -174,46 +180,219 @@ def sample_thumbnail(sample_id: str) -> bytes:
     return _thumb_cache[sample_id]
 
 
-def run_pipeline(data: bytes, band_order: str, fallback: dict | None = None) -> dict:
-    refl, meta, notes = read_input(data, band_order)
-    get_model()  # load before timing
-    t0 = time.perf_counter()
-    out = super_resolve(refl)
-    runtime_ms = round((time.perf_counter() - t0) * 1000)
+def tta_passes(n_tiles: int) -> int:
+    """8 dihedral passes; large inputs (more than 16 tiles) use only 4 to bound the run time."""
+    n = int(os.environ.get("RESOLVE_TTA", "8"))
+    return n if n_tiles <= 16 else min(n, 4)
 
+
+def _timed_aef(crs, transform, w, h, date):
+    t = time.perf_counter()
+    res = alphaearth.fetch(crs, transform, w, h, date)
+    return res, round((time.perf_counter() - t) * 1000)
+
+
+def _fallback_features(refl: np.ndarray) -> np.ndarray:
+    gy, gx = np.gradient(refl, axis=(1, 2))
+    return np.concatenate([refl, np.hypot(gx, gy)])
+
+
+def write_outputs(d: Path, input_png: bytes, out: np.ndarray, refl: np.ndarray, meta: dict):
+    H, W = out.shape[1:]
+    lo, hi = np.percentile(refl[:3], [2, 98])
+    (d / "input.png").write_bytes(input_png)
+    (d / "output.png").write_bytes(to_png(out[:3], lo, hi))
+    transform = meta["transform"] @ rasterio.Affine.scale(1 / SCALE)
+    with rasterio.open(d / "output.tif", "w", driver="GTiff", count=4, width=W, height=H, dtype="float32",
+                       crs=meta["crs"], transform=transform, compress="deflate", zlevel=1, predictor=3) as dst:
+        dst.write(out.astype("float32"))
+        dst.update_tags(band_order="B4,B3,B2,B8", model=MODEL_NAME, units="surface reflectance 0-1")
+
+
+_prewarmed = False
+
+
+def prewarm_alphaearth():
+    """Fill the AlphaEarth cache for the bundled samples in the background, so demo clicks are fast.
+    Started once, by the first health check (the front end pings it on load)."""
+    global _prewarmed
+    if _prewarmed or not alphaearth.enabled() or os.environ.get("RESOLVE_AEF_PREWARM", "1") == "0":
+        return
+    _prewarmed = True
+
+    def work():
+        for s in load_samples():
+            try:
+                with rasterio.open(SAMPLES_DIR / f"{s['id']}.tif") as src:
+                    alphaearth.fetch(src.crs, src.transform, src.width, src.height, s.get("date"), budget=120)
+            except Exception:
+                pass
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def run_pipeline(data: bytes, band_order: str, fallback: dict | None = None) -> dict:
+    stages: dict[str, int] = {}
+    clock = time.perf_counter
+
+    def tick(name, t0):
+        stages[name] = round((clock() - t0) * 1000)
+
+    get_model()  # load before timing
+    t0 = clock()
+    refl, meta, notes = read_input(data, band_order)
+    tick("ingest", t0)
     _, h, w = refl.shape
+    H, W = h * SCALE, w * SCALE
+    scene = build_scene(meta, w, h, fallback)
+    pool = ThreadPoolExecutor(max_workers=2)  # AlphaEarth is fetched, and files written, while the model runs
+    aef_future = pool.submit(_timed_aef, meta["crs"], meta["transform"], w, h, scene["date"])
+    aef_started = clock()
+
+    t0 = clock()
     lo, hi = np.percentile(refl[:3], [2, 98])
     input_png = to_png(refl[:3].repeat(SCALE, axis=1).repeat(SCALE, axis=2), lo, hi)
-    output_png = to_png(out[:3], lo, hi)
+    tick("normalise", t0)
+
+    raw, fmap, stages["patching"], stages["backbone"] = super_resolve_features(refl)
+    runtime_ms = stages["patching"] + stages["backbone"]
+
+    t0 = clock()
+    out, c_before, c_after = measurement_lock(raw, refl)
+    tick("lock", t0)
 
     rid = uuid.uuid4().hex
     RESULTS_DIR.mkdir(exist_ok=True)
     d = RESULTS_DIR / rid
     d.mkdir()
-    (d / "input.png").write_bytes(input_png)
-    (d / "output.png").write_bytes(output_png)
-    transform = meta["transform"] @ rasterio.Affine.scale(1 / SCALE)
-    with rasterio.open(d / "output.tif", "w", driver="GTiff", count=4, width=w * SCALE, height=h * SCALE,
-                       dtype="float32", crs=meta["crs"], transform=transform, compress="deflate",
-                       predictor=3) as dst:
-        dst.write(out.astype("float32"))
-        dst.update_tags(band_order="B4,B3,B2,B8", model=MODEL_NAME, units="surface reflectance 0-1")
+    ld = d / "layers"
+    ld.mkdir()
+    (ld / "size.json").write_text(json.dumps([H, W]))
+    writer = pool.submit(write_outputs, d, input_png, out, refl, meta)  # file output overlaps the TTA passes
+
+    t0 = clock()
+    wav = L.haar_energy(out)
+    tick("wavelet", t0)
+
+    t0 = clock()
+    patches = build_patches(h, w)
+    n_tta = tta_passes(patches["count"])
+    unc = super_resolve_tta(refl, raw, n_tta).std(0).mean(0)
+    tick("uncertainty", t0)
+
+    t0 = clock()
+    ndvi, ndwi = L.indices(out)
+    lc = L.landcover(out, ndvi, ndwi)
+    inf = L.inferred_magnitude(out)
+    conf = L.confidence_map(unc, inf)
+    conf_stats = {"mean": round(float(conf.mean()), 4), "high_fraction": round(float((conf >= L.CONF_HIGH).mean()), 4)}
+
+    try:
+        aef, stages["alphaearth"] = aef_future.result(timeout=max(0.1, alphaearth.budget_s() + 1 - (clock() - aef_started)))
+    except Exception:
+        aef = alphaearth._result(False, None, "AlphaEarth lookup timed out.")
+        stages["alphaearth"] = round(alphaearth.budget_s() * 1000)
+    pool.shutdown(wait=False)
+
+    lay: list[dict] = []
+
+    def add(lid, name, group, legend, arr=None, style=None):
+        if arr is not None:
+            L.save_layer(ld, lid, arr, style)
+        lay.append({"id": lid, "name": name, "group": group, "url": f"/api/results/{rid}/layers/{lid}.png", "legend": legend})
+
+    def ramp_style(cm):
+        return {"kind": "ramp", "colormap": cm}
+
+    add("rgb", "True colour", "Imagery",
+        L.ramp(0, 1, "dark", "bright", "rgb", "Output reflectance B4, B3, B2 with the same stretch as the output preview."))
+    add("nir_false", "False colour (NIR, R, G)", "Imagery",
+        L.ramp(0, 1, "low", "high", "rgb", "NIR as red, red as green, green as blue; vegetation shows red."),
+        L.false_colour(out), {"kind": "rgb"})
+    add("ndvi", "NDVI", "Indices",
+        L.ramp(-0.2, 0.9, "bare / water", "dense vegetation", "rdylgn", "(NIR - red) / (NIR + red) on the output, stretched -0.2 to 0.9."),
+        L._u8(ndvi, -0.2, 0.9), ramp_style("rdylgn"))
+    add("ndwi", "NDWI", "Indices",
+        L.ramp(-0.6, 0.6, "dry", "water", "blues", "(green - NIR) / (green + NIR) on the output, stretched -0.6 to 0.6."),
+        L._u8(ndwi, -0.6, 0.6), ramp_style("blues"))
+    add("water", "Water mask", "Land cover",
+        L.classes([("Water", "#2563EB"), ("Other", "#94A3B8")],
+                  f"NDWI above {L.WATER_NDWI} and NIR reflectance below {L.WATER_NIR_MAX}; other pixels are transparent."),
+        (lc != 0).astype("uint8"), {"kind": "classes", "palette": ["#2563EB", None]})
+    add("landcover", "Land cover", "Land cover",
+        L.classes(L.LC_CLASSES, f"Rule-based: water (NDWI), dense vegetation (NDVI above {L.VEG_DENSE_NDVI}), "
+                  f"cropland / sparse (above {L.VEG_SPARSE_NDVI}), otherwise built-up / bare."),
+        lc, {"kind": "classes", "palette": [c for _, c in L.LC_CLASSES]})
+    add("builtup", "Built-up / bare", "Land cover",
+        L.classes([("Built-up / bare", "#B45309"), ("Other", "#94A3B8")],
+                  f"Low NDVI, not water, mean visible reflectance above {L.BUILTUP_MIN_BRIGHT}; other pixels are transparent."),
+        1 - L.builtup_mask(out, lc), {"kind": "classes", "palette": ["#B45309", None]})
+    add("fields", "Field boundaries", "Land cover",
+        L.classes([("Field boundary", L.FIELD_COLOR)],
+                  "Sobel gradient of smoothed NDVI, thinned by non-maximum suppression; lines on transparent."),
+        L.field_edges(ndvi), {"kind": "classes", "palette": [None, L.FIELD_COLOR]})
+    wlo, whi = (float(v) for v in np.percentile(wav, [2, 99.5]))
+    add("wavelet", "Wavelet detail energy", "Detail",
+        L.ramp(wlo, whi, "smooth", "fine detail", "magma", "1-level Haar DWT of luminance: |LH| + |HL| + |HH|, 2nd to 99.5th percentile."),
+        L._u8(wav, wlo, whi), ramp_style("magma"))
+    if fmap is not None:
+        fnote = "Backbone activations (24 channels, 4th of 6 SPAB blocks) reduced to 3 principal components, shown as RGB."
+        fm = fmap
+    else:
+        fnote = "Backbone hook unavailable: PCA of the input bands and their gradients instead."
+        fm = _fallback_features(refl)
+    add("features", "Backbone features", "Detail",
+        L.ramp(0, 1, "component low", "component high", "rgb", fnote), L.pca_rgb(fm), {"kind": "rgb"})
+    uhi = float(np.percentile(unc, 98))
+    add("uncertainty", "Uncertainty", "Trust",
+        L.ramp(0, uhi, "stable", "uncertain", "magma", f"Std dev across {n_tta} test-time dihedral transforms (mean over bands), reflectance units."),
+        L._u8(unc, 0, uhi), ramp_style("magma"))
+    ihi = float(np.percentile(inf, 98))
+    add("inferred", "Observed vs inferred", "Trust",
+        L.ramp(0, ihi, "observed", "inferred", "plasma", "Output minus its 4x area average re-expanded bilinearly: detail the 10 m pixels cannot have observed."),
+        L._u8(inf, 0, ihi), ramp_style("plasma"))
+    add("confidence", "Confidence", "Trust",
+        L.ramp(0, 1, "low", "high", "viridis",
+               f"1 - ({L.CONF_W_UNC} x scaled uncertainty + {L.CONF_W_INF} x scaled inferred detail), each scaled by its 98th percentile."),
+        L._u8(conf, 0, 1), ramp_style("viridis"))
+    aef_info = {k: aef[k] for k in ("available", "year", "source", "note")}
+    if aef["available"]:
+        emb = aef["emb"]
+        gate = L._resize(L.gate_map(emb, refl), H, W)
+        add("alphaearth", "AlphaEarth embedding", "AlphaEarth",
+            L.ramp(0, 1, "component low", "component high", "rgb",
+                   f"Prior-year ({aef['year']}) embedding, {emb.shape[0]} of 64 dimensions, as 3 principal components, resampled to the output grid."),
+            L.pca_rgb(emb), {"kind": "rgb"})
+        add("gate", "Change gate", "AlphaEarth",
+            L.ramp(0, 1, "disagrees", "agrees", "rdylgn",
+                   "Per-pixel cosine agreement between the embedding (linearly fitted to current reflectance and indices) and the current image."),
+            L._u8(gate, 0, 1), ramp_style("rdylgn"))
+
+    writer.result()
     prune_results()
+    tick("products", t0)
 
     notes += [
         "Previews use one 2-98 percentile stretch computed from the input RGB (B4,B3,B2), applied to both.",
         f"The input preview is enlarged {SCALE}x with nearest-neighbour so both previews have the same pixel size.",
+        "The output has the measurement lock applied: a Gaussian-PSF back-projection onto the observed pixels.",
     ]
+    order = ["ingest", "normalise", "alphaearth", "patching", "backbone", "wavelet", "lock", "uncertainty", "products"]
     return {
         "id": rid,
-        "input": {"width": w * SCALE, "height": h * SCALE, "png": f"/api/results/{rid}/input.png"},
-        "output": {"width": w * SCALE, "height": h * SCALE, "png": f"/api/results/{rid}/output.png"},
+        "input": {"width": W, "height": H, "png": f"/api/results/{rid}/input.png"},
+        "output": {"width": W, "height": H, "png": f"/api/results/{rid}/output.png"},
         "runtime_ms": runtime_ms,
         "model": MODEL_NAME,
         "crs": meta["crs"].to_string() if meta["crs"] else None,
         "notes": notes,
-        "scene": build_scene(meta, w, h, fallback),
-        "patches": build_patches(h, w),
+        "scene": scene,
+        "patches": patches,
+        "layers": lay,
+        "stages": [{"id": k, "ms": stages[k]} for k in order],
+        "alphaearth": aef_info,
+        "confidence": conf_stats,
+        "lock": {"consistency_before": round(c_before, 5), "consistency_after": round(c_after, 5), "applied": True},
     }
 
 
@@ -243,3 +422,23 @@ def result_file(result_id: str, name: str):
     if not path.exists():
         raise HTTPException(404, "Result not found (results are kept only for the most recent runs)")
     return FileResponse(path, media_type=media[name], filename=name if name == "output.tif" else None)
+
+
+@app.get("/api/results/{result_id}/layers/{layer_id}.png")
+def result_layer(result_id: str, layer_id: str):
+    if not re.fullmatch(r"[0-9a-f]{32}", result_id) or not re.fullmatch(r"[a-z_]{1,32}", layer_id):
+        raise HTTPException(404, "Not found")
+    d = RESULTS_DIR / result_id
+    cache = {"Cache-Control": "public, max-age=3600"}
+    if layer_id == "rgb":
+        path = d / "output.png"
+        if not path.exists():
+            raise HTTPException(404, "Result not found (results are kept only for the most recent runs)")
+        return FileResponse(path, media_type="image/png", headers=cache)
+    size_path = d / "layers" / "size.json"
+    if not size_path.exists():
+        raise HTTPException(404, "Result not found (results are kept only for the most recent runs)")
+    png = L.render_layer(d / "layers", layer_id, tuple(json.loads(size_path.read_text())))
+    if png is None:
+        raise HTTPException(404, "Unknown layer for this result")
+    return Response(png, media_type="image/png", headers=cache)

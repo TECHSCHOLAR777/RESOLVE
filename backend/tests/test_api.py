@@ -170,3 +170,170 @@ def test_scene_from_source_item_tag_and_single_pass():
     sc = body["scene"]
     assert (sc["date"], sc["satellite"], sc["tile_id"], sc["source_item"]) == ("2025-01-01", "Sentinel-2A", "T42QZG", item)
     assert body["patches"]["cols"] == body["patches"]["rows"] == 1
+
+
+# ---- analysis layers, stages, lock, AlphaEarth ------------------------------------------------
+
+BASE_LAYERS = ["rgb", "nir_false", "ndvi", "ndwi", "water", "landcover", "builtup", "fields", "wavelet",
+               "features", "uncertainty", "inferred", "confidence"]
+STAGES = ["ingest", "normalise", "alphaearth", "patching", "backbone", "wavelet", "lock", "uncertainty", "products"]
+
+
+def layer_pixels(body: dict, layer_id: str) -> np.ndarray:
+    r = client.get(f"/api/results/{body['id']}/layers/{layer_id}.png")
+    assert r.status_code == 200
+    return np.array(Image.open(io.BytesIO(r.content)).convert("RGBA"))
+
+
+def check_layers(body: dict, expect_ae: bool = False):
+    ids = [l["id"] for l in body["layers"]]
+    assert ids[:len(BASE_LAYERS)] == BASE_LAYERS
+    assert set(ids) - set(BASE_LAYERS) == ({"alphaearth", "gate"} if expect_ae else set())
+    size = (body["output"]["width"], body["output"]["height"])
+    for l in body["layers"]:
+        assert l["url"] == f"/api/results/{body['id']}/layers/{l['id']}.png" and l["name"] and l["group"]
+        lg = l["legend"]
+        if lg["type"] == "ramp":
+            assert lg["min"] < lg["max"] or l["id"] == "rgb"
+            assert lg["min_label"] and lg["max_label"] and lg["colormap"]
+        else:
+            assert lg["type"] == "classes" and lg["classes"]
+            assert all(re.fullmatch(r"#[0-9A-Fa-f]{6}", c["color"]) and c["label"] for c in lg["classes"])
+        r = client.get(l["url"])
+        assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+        assert Image.open(io.BytesIO(r.content)).size == size
+        assert client.get(l["url"]).content == r.content  # cached render is stable
+
+
+@pytest.mark.parametrize("sample_id", SAMPLE_IDS)
+def test_sample_layers_stages_confidence_lock(sample_id):
+    body = client.post(f"/api/samples/{sample_id}/superres").json()
+    check_layers(body)
+    assert [s["id"] for s in body["stages"]] == STAGES
+    assert all(isinstance(s["ms"], int) and s["ms"] >= 0 for s in body["stages"])
+    assert body["stages"][STAGES.index("backbone")]["ms"] > 0
+    c = body["confidence"]
+    assert 0 <= c["mean"] <= 1 and 0 <= c["high_fraction"] <= 1
+    lock = body["lock"]
+    assert 0 < lock["consistency_after"] < lock["consistency_before"] < 1 and lock["applied"] is True
+    assert body["alphaearth"] == {"available": False, "year": None, "source": None,
+                                  "note": "AlphaEarth lookup is switched off on this server."}
+
+
+def test_layer_semantics_on_vegetation_and_water():
+    # left half vegetation (high NIR), right half water (low NIR, green above NIR)
+    refl = np.zeros((4, 64, 64), "float32")
+    refl[:, :, :32] = np.array([0.05, 0.08, 0.04, 0.45], "float32")[:, None, None]
+    refl[:, :, 32:] = np.array([0.03, 0.06, 0.05, 0.02], "float32")[:, None, None]
+    body = client.post("/api/superres", files={"file": ("a.tif", tif_bytes(refl), "image/tiff")}).json()
+    out = read_output(body["id"])[0]
+    assert out[3, :, :100].mean() > 0.3 and out[3, :, 160:].mean() < 0.1
+    water = layer_pixels(body, "water")
+    assert water[:, 200:, 3].mean() > 250 and water[:, :60, 3].mean() < 5  # water opaque, other transparent
+    lc = layer_pixels(body, "landcover")
+    assert tuple(lc[128, 20, :3]) == (0x15, 0x80, 0x3D)  # dense vegetation
+    assert tuple(lc[128, 230, :3]) == (0x25, 0x63, 0xEB)  # water
+
+
+def test_uncertainty_uses_eight_passes_when_asked(monkeypatch):
+    monkeypatch.setenv("RESOLVE_TTA", "8")
+    data = tif_bytes(np.random.default_rng(0).uniform(0.05, 0.3, (4, 40, 40)).astype("float32"))
+    body = client.post("/api/superres", files={"file": ("a.tif", data, "image/tiff")}).json()
+    unc = next(l for l in body["layers"] if l["id"] == "uncertainty")
+    assert "8 test-time" in unc["legend"]["note"] and unc["legend"]["max"] > 0
+
+
+def test_layer_endpoint_errors():
+    body = client.post(f"/api/samples/{SAMPLE_IDS[0]}/superres").json()
+    assert client.get(f"/api/results/{body['id']}/layers/nope.png").status_code == 404
+    assert client.get(f"/api/results/{body['id']}/layers/gate.png").status_code == 404  # no AlphaEarth, no gate
+    assert client.get("/api/results/" + "0" * 32 + "/layers/ndvi.png").status_code == 404
+    assert client.get(f"/api/results/{body['id']}/layers/NDVI.png").status_code == 404
+
+
+def test_lock_reduces_inconsistency():
+    from app.lock import lock
+    rng = np.random.default_rng(1)
+    z = rng.uniform(0.05, 0.3, (4, 128, 128)).astype("float32")
+    y = z.reshape(4, 32, 4, 32, 4).mean((2, 4)) * 1.1
+    x, before, after = lock(z, y)
+    assert after < before and np.isfinite(x).all() and x.min() >= 0
+
+
+def test_haar_energy_and_dihedral():
+    from app.layers import haar_energy
+    from app.model import DIHEDRAL, d_apply, d_invert
+    flat = np.full((4, 32, 32), 0.2, "float32")
+    assert haar_energy(flat).max() == pytest.approx(0, abs=1e-6)
+    stripes = flat.copy()
+    stripes[:, :, ::2] += 0.1
+    assert haar_energy(stripes).mean() > 0.05
+    x = np.random.default_rng(2).random((4, 6, 9))
+    for k, f in DIHEDRAL:
+        assert np.array_equal(d_invert(d_apply(x, k, f), k, f), x)
+
+
+def test_alphaearth_unit_helpers():
+    from app import alphaearth as ae
+    assert ae.target_year("2025-03-22") == 2024 and ae.target_year("2017-01-01") == 2017
+    assert ae.target_year("2030-01-01") == 2025 and ae.target_year(None) == 2024
+    out = ae._dequantise(np.array([[-128, 127, -127, 0]], "int8"))
+    assert np.isnan(out[0, 0]) and out[0, 1] == pytest.approx((127 / 127.5) ** 2) and out[0, 2] < 0 and out[0, 3] == 0
+    idx = ae._index()
+    assert idx["files"]["2024/43N"] and idx["grid"] == {"west0": 8480, "size": 81920}
+
+
+def test_alphaearth_network_failure_does_not_break_request(monkeypatch, tmp_path):
+    from app import alphaearth as ae
+    monkeypatch.setenv("RESOLVE_ALPHAEARTH", "1")
+    monkeypatch.setattr(ae, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ae, "_failures", {})
+
+    def boom(*a, **k):
+        raise OSError("network down")
+
+    monkeypatch.setattr(ae, "_read_cell_band", boom)
+    body = client.post(f"/api/samples/{SAMPLE_IDS[0]}/superres").json()
+    a = body["alphaearth"]
+    assert a["available"] is False and a["year"] is None and a["source"] is None and a["note"]
+    check_layers(body, expect_ae=False)
+
+
+def test_alphaearth_present_adds_layers(monkeypatch):
+    from app import alphaearth as ae
+    emb = np.random.default_rng(3).normal(size=(6, 256, 256)).astype("float32")
+
+    def fake(crs, transform, w, h, date, budget=None):
+        return ae._result(True, 2024, "Read 6 of 64 dimensions.", emb, ae.SOURCE)
+
+    monkeypatch.setattr(ae, "fetch", fake)
+    body = client.post(f"/api/samples/{SAMPLE_IDS[0]}/superres").json()
+    assert body["alphaearth"]["available"] and body["alphaearth"]["year"] == 2024 and body["alphaearth"]["source"]
+    check_layers(body, expect_ae=True)
+
+
+def _online() -> bool:
+    import socket
+    try:
+        socket.create_connection(("s3.us-west-2.amazonaws.com", 443), timeout=3).close()
+        return True
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(not _online(), reason="needs network access to the AlphaEarth bucket")
+def test_alphaearth_live_window_read(monkeypatch, tmp_path):
+    from app import alphaearth as ae
+    monkeypatch.setenv("RESOLVE_ALPHAEARTH", "1")
+    monkeypatch.setenv("AEF_BANDS", "3")
+    monkeypatch.setenv("AEF_TIMEOUT_S", "30")
+    monkeypatch.setattr(ae, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ae, "_failures", {})
+    with rasterio.open(SAMPLES_DIR / "delhi-city.tif") as src:
+        res = ae.fetch(src.crs, src.transform, src.width, src.height, "2025-03-24")
+    if not res["available"]:
+        pytest.skip(f"AlphaEarth not reachable right now: {res['note']}")
+    emb = res["emb"]
+    assert res["year"] == 2024 and emb.shape == (3, 256, 256)
+    assert np.nanmax(np.nansum(emb ** 2, 0)) <= 1.01  # 3 dims of a unit-length 64-d vector
+    assert np.isnan(emb).mean() < 0.01 and emb.std() > 0.01
