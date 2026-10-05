@@ -1,7 +1,7 @@
 # Hugging Face Docker Space (CPU). Space metadata (sdk: docker, app_port: 7860) goes in the Space README.
 FROM python:3.11-slim
 WORKDIR /app
-RUN useradd -m -u 1000 user
+RUN useradd -m -u 1000 user && chown user /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=user app ./app
