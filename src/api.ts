@@ -27,6 +27,27 @@ export interface ImageInfo {
   png: string;
 }
 
+export interface SceneInfo {
+  center: { lat: number; lon: number };
+  bounds: [number, number, number, number];
+  crs: string | null;
+  pixel_size_m: number;
+  width: number;
+  height: number;
+  date: string | null;
+  satellite: string | null;
+  source_item: string | null;
+  tile_id: string | null;
+}
+
+export interface PatchInfo {
+  tile: number;
+  overlap: number;
+  cols: number;
+  rows: number;
+  count: number;
+}
+
 export interface SuperresResult {
   id: string;
   input: ImageInfo;
@@ -35,12 +56,19 @@ export interface SuperresResult {
   model: string;
   crs: string | null;
   notes: string[];
+  scene?: SceneInfo | null;
+  patches?: PatchInfo | null;
 }
 
 /** Resolve a backend path (relative or absolute) to an absolute URL. */
 export function absUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
   return `${API_URL}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
+/** Early placeholder thumbnail for a bundled sample (available before the run finishes). */
+export function sampleThumbUrl(id: string): string {
+  return absUrl(`/api/samples/${encodeURIComponent(id)}/input.png`);
 }
 
 export function outputTifUrl(result: SuperresResult): string {

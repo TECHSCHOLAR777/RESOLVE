@@ -26,61 +26,33 @@ import {
   FileImage,
   Sparkle
 } from 'lucide-react';
-import { absUrl, listSamples, outputTifUrl, superresSample, superresUpload, type SuperresResult, type Sample } from './api';
-
-interface RecentItem {
-  id: string;
-  title: string;
-  timeAgo: string;
-  badge: string;
-  imgUrl: string;
-  sampleId?: string;
-}
-
-const DEFAULT_RECENT_ITEMS: RecentItem[] = [
-  {
-    id: 'punjab-farmlands',
-    title: 'Punjab Farmlands',
-    timeAgo: '2 hours ago',
-    badge: '4×',
-    imgUrl: '/assets/punjab.jpg',
-    sampleId: '01_punjab',
-  },
-  {
-    id: 'narmada-river',
-    title: 'Narmada River & Surrou...',
-    timeAgo: '5 hours ago',
-    badge: '4×',
-    imgUrl: '/assets/narmada.jpg',
-    sampleId: '02_narmada',
-  },
-  {
-    id: 'forest-region',
-    title: 'Forest Region',
-    timeAgo: '1 day ago',
-    badge: '4×',
-    imgUrl: '/assets/forest.jpg',
-    sampleId: '03_forest',
-  },
-  {
-    id: 'ahmedabad-urban',
-    title: 'Ahmedabad Urban Area',
-    timeAgo: '2 days ago',
-    badge: '4×',
-    imgUrl: '/assets/ahmedabad.jpg',
-    sampleId: '04_ahmedabad',
-  },
-];
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { absUrl, outputTifUrl } from './api';
+import { RunProvider, useRun, type RecentItem } from './components/run/RunContext';
+import RunPage from './components/run/RunPage';
 
 export default function App() {
+  return (
+    <BrowserRouter>
+      <RunProvider>
+        <Routes>
+          <Route path="/" element={<Workspace />} />
+          <Route path="/run" element={<RunPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </RunProvider>
+    </BrowserRouter>
+  );
+}
+
+function Workspace() {
   const [activeNav, setActiveNav] = useState<'enhance' | 'results' | 'help' | 'settings'>('enhance');
   const [viewMode, setViewMode] = useState<'split' | 'side-by-side'>('split');
 
+  const { result, imageName, recentItems, samples: samplesList, isBusy: isLoading, initializing, startSample, startUpload } = useRun();
+
   // Imagery state
-  const [imageName, setImageName] = useState<string>('Agricultural Farmland & Road Corridor Scene');
-  const [result, setResult] = useState<SuperresResult | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [splitPos, setSplitPos] = useState<number>(50); // percentage for split slider
@@ -88,13 +60,8 @@ export default function App() {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isSaved, setIsSaved] = useState<boolean>(false);
 
-  // Available backend samples & recent activity items (defaults to the 4 showcase cards)
-  const [samplesList, setSamplesList] = useState<Sample[]>([]);
-  const [recentItems, setRecentItems] = useState<RecentItem[]>(DEFAULT_RECENT_ITEMS);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const viewerContainerRef = useRef<HTMLDivElement>(null);
-  const requestSeq = useRef(0);
 
   // Fallback to Punjab scene when result is not loaded yet so viewer is never an empty box
   const inputSrc = result ? absUrl(result.input.png) : '/assets/punjab.jpg';
@@ -114,79 +81,14 @@ export default function App() {
     if (w > 0 && h > 0) setNaturalSize({ w, h });
   };
 
-  // Run one backend job; only the latest request may update the UI.
-  const runJob = async (label: string, job: () => Promise<SuperresResult>) => {
-    const seq = ++requestSeq.current;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const res = await job();
-      if (seq !== requestSeq.current) return;
-      setResult(res);
-      setImageName(label);
-      setZoomLevel(1);
-
-      // Dynamically add to recent items
-      setRecentItems((prev) => {
-        const existing = prev.filter((item) => item.title !== label);
-        return [
-          {
-            id: res.id,
-            title: label,
-            timeAgo: 'Just now',
-            badge: '4×',
-            imgUrl: absUrl(res.output.png),
-          },
-          ...existing,
-        ].slice(0, 8);
-      });
-    } catch (err) {
-      if (seq !== requestSeq.current) return;
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      if (seq === requestSeq.current) setIsLoading(false);
-    }
-  };
-
-  // Load the first bundled sample on startup.
+  // A new result starts un-zoomed.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const samples = await listSamples();
-        if (cancelled) return;
-        setSamplesList(samples);
-        if (samples.length > 0) {
-          // Merge dynamic samples with recent items if samples exist
-          const initialRecent: RecentItem[] = samples.map((s, idx) => ({
-            id: s.id,
-            title: s.name || `Scene ${s.id}`,
-            timeAgo: `${(idx + 1) * 2} hours ago`,
-            badge: '4×',
-            imgUrl: absUrl(`/api/samples/${encodeURIComponent(s.id)}/input.png`),
-            sampleId: s.id,
-          }));
-          setRecentItems(initialRecent.length >= 4 ? initialRecent : [...initialRecent, ...DEFAULT_RECENT_ITEMS.slice(initialRecent.length)]);
-
-          const first = samples[0];
-          await runJob(first.name || 'Agricultural Farmland & Road Corridor Scene', () => superresSample(first.id));
-        } else {
-          setIsLoading(false);
-        }
-      } catch (err) {
-        if (cancelled) return;
-        setIsLoading(false);
-        console.warn('Backend offline, running in visual mode:', err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setZoomLevel(1);
+  }, [result]);
 
   // Handle local file upload
   const handleFile = (file: File) => {
-    void runJob(file.name.replace(/\.[^/.]+$/, ''), () => superresUpload(file));
+    startUpload(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -250,19 +152,18 @@ export default function App() {
   const handleEnhanceClick = () => {
     if (samplesList.length > 0) {
       const randomSample = samplesList[Math.floor(Math.random() * samplesList.length)];
-      void runJob(randomSample.name, () => superresSample(randomSample.id));
+      startSample(randomSample);
     } else if (fileInputRef.current) {
       fileInputRef.current.click();
     }
   };
 
   const handleSelectRecent = (item: RecentItem) => {
-    setImageName(item.title);
     if (item.sampleId) {
-      void runJob(item.title, () => superresSample(item.sampleId!));
+      startSample({ id: item.sampleId, name: item.title });
     } else if (samplesList.length > 0) {
       const matched = samplesList.find(s => s.name.toLowerCase().includes(item.id.toLowerCase())) || samplesList[0];
-      void runJob(item.title, () => superresSample(matched.id));
+      startSample({ id: matched.id, name: item.title });
     }
   };
 
@@ -618,11 +519,11 @@ export default function App() {
                     </div>
                   )}
 
-                  {isLoading && (
+                  {initializing && (
                     <div className="absolute inset-0 z-30 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center text-white">
                       <div className="w-10 h-10 rounded-full border-3 border-white/30 border-t-[#2563EB] animate-spin mb-2" />
                       <span className="text-xs font-semibold tracking-wide">
-                        Enhancing Satellite Resolution...
+                        Loading scene
                       </span>
                     </div>
                   )}
