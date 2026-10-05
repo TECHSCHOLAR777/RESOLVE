@@ -38,6 +38,41 @@ interface RecentItem {
   sampleId?: string;
 }
 
+const DEFAULT_RECENT_ITEMS: RecentItem[] = [
+  {
+    id: 'punjab-farmlands',
+    title: 'Punjab Farmlands',
+    timeAgo: '2 hours ago',
+    badge: '4×',
+    imgUrl: '/assets/punjab.jpg',
+    sampleId: '01_punjab',
+  },
+  {
+    id: 'narmada-river',
+    title: 'Narmada River & Surrou...',
+    timeAgo: '5 hours ago',
+    badge: '4×',
+    imgUrl: '/assets/narmada.jpg',
+    sampleId: '02_narmada',
+  },
+  {
+    id: 'forest-region',
+    title: 'Forest Region',
+    timeAgo: '1 day ago',
+    badge: '4×',
+    imgUrl: '/assets/forest.jpg',
+    sampleId: '03_forest',
+  },
+  {
+    id: 'ahmedabad-urban',
+    title: 'Ahmedabad Urban Area',
+    timeAgo: '2 days ago',
+    badge: '4×',
+    imgUrl: '/assets/ahmedabad.jpg',
+    sampleId: '04_ahmedabad',
+  },
+];
+
 export default function App() {
   const [activeNav, setActiveNav] = useState<'enhance' | 'results' | 'help' | 'settings'>('enhance');
   const [viewMode, setViewMode] = useState<'split' | 'side-by-side'>('split');
@@ -55,16 +90,17 @@ export default function App() {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isSaved, setIsSaved] = useState<boolean>(false);
 
-  // Available backend samples & recent activity items
+  // Available backend samples & recent activity items (defaults to the 4 showcase cards)
   const [samplesList, setSamplesList] = useState<Sample[]>([]);
-  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
+  const [recentItems, setRecentItems] = useState<RecentItem[]>(DEFAULT_RECENT_ITEMS);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const requestSeq = useRef(0);
 
-  const inputSrc = result ? absUrl(result.input.png) : undefined;
-  const outputSrc = result ? absUrl(result.output.png) : undefined;
+  // Fallback to Punjab scene when result is not loaded yet so viewer is never an empty box
+  const inputSrc = result ? absUrl(result.input.png) : '/assets/punjab.jpg';
+  const outputSrc = result ? absUrl(result.output.png) : '/assets/punjab.jpg';
 
   // Tile shape drives the layout: clearly portrait tiles go side by side, everything else stacks.
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
@@ -123,7 +159,7 @@ export default function App() {
         if (cancelled) return;
         setSamplesList(samples);
         if (samples.length > 0) {
-          // Populate dynamic recent activity from backend samples
+          // Merge dynamic samples with recent items if samples exist
           const initialRecent: RecentItem[] = samples.map((s, idx) => ({
             id: s.id,
             title: s.name || `Scene ${s.id}`,
@@ -132,7 +168,7 @@ export default function App() {
             imgUrl: absUrl(`/api/samples/${encodeURIComponent(s.id)}/input.png`),
             sampleId: s.id,
           }));
-          setRecentItems(initialRecent);
+          setRecentItems(initialRecent.length >= 4 ? initialRecent : [...initialRecent, ...DEFAULT_RECENT_ITEMS.slice(initialRecent.length)]);
 
           const first = samples[0];
           await runJob(first.name || 'Agricultural Farmland & Road Corridor Scene', () => superresSample(first.id));
@@ -142,7 +178,7 @@ export default function App() {
       } catch (err) {
         if (cancelled) return;
         setIsLoading(false);
-        console.warn('Backend offline:', err);
+        console.warn('Backend offline, running in visual mode:', err);
       }
     })();
     return () => {
@@ -354,7 +390,7 @@ export default function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-y-auto">
         {/* Top Header */}
-        <header className="h-16 px-8 flex items-center justify-end gap-3 shrink-0">
+        <header className="h-14 px-6 xl:px-8 flex items-center justify-end gap-3 shrink-0">
           <button
             onClick={() => setActiveNav('help')}
             className="w-8 h-8 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 transition-all cursor-pointer"
@@ -372,15 +408,15 @@ export default function App() {
           </div>
         </header>
 
-        {/* Content Body Container */}
-        <main className="flex-1 px-8 pb-8 max-w-7xl w-full mx-auto flex flex-col justify-between">
+        {/* Content Body Container - Fully responsive & properly scaled */}
+        <main className="flex-1 px-6 xl:px-10 pb-6 w-full mx-auto flex flex-col justify-between">
           <div>
             {/* Headline Banner */}
-            <div className="mb-6">
-              <h1 className="text-3xl lg:text-4xl font-extrabold text-[#0F172A] tracking-tight">
+            <div className="mb-4">
+              <h1 className="text-2xl xl:text-3xl font-extrabold text-[#0F172A] tracking-tight">
                 Enhance Satellite Imagery <span className="text-[#2563EB]">with AI</span>
               </h1>
-              <p className="text-sm text-slate-500 mt-1.5">
+              <p className="text-xs xl:text-sm text-slate-500 mt-1">
                 Upload a Sentinel-2 image and get 4× higher resolution (2.5 m) while preserving real-world fidelity.
               </p>
             </div>
@@ -482,7 +518,7 @@ export default function App() {
                 </div>
 
                 {/* Viewport Area */}
-                <div className="relative my-3 rounded-xl overflow-hidden bg-slate-900 aspect-[16/9] max-h-[360px] flex items-center justify-center select-none">
+                <div className="relative my-3 rounded-xl overflow-hidden bg-slate-900 aspect-[16/9] h-[340px] xl:h-[400px] max-h-[500px] flex items-center justify-center select-none">
                   {viewMode === 'split' ? (
                     <div
                       onMouseDown={() => setIsSplitDragging(true)}
