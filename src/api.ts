@@ -49,8 +49,8 @@ export interface PatchInfo {
 }
 
 export type LayerLegend =
-  | { type: 'ramp'; min: number; max: number; min_label: string; max_label: string; colormap: string }
-  | { type: 'classes'; classes: { label: string; color: string }[] };
+  | { type: 'ramp'; min: number; max: number; min_label: string; max_label: string; colormap: string; note?: string }
+  | { type: 'classes'; classes: { label: string; color: string }[]; note?: string };
 
 /** One selectable product layer, pixel-aligned with output.png. Optional: older backends omit `layers`. */
 export interface LayerInfo {

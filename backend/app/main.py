@@ -438,7 +438,8 @@ def result_layer(result_id: str, layer_id: str):
     size_path = d / "layers" / "size.json"
     if not size_path.exists():
         raise HTTPException(404, "Result not found (results are kept only for the most recent runs)")
-    png = L.render_layer(d / "layers", layer_id, tuple(json.loads(size_path.read_text())))
-    if png is None:
+    rendered = L.render_layer(d / "layers", layer_id, tuple(json.loads(size_path.read_text())))
+    if rendered is None:
         raise HTTPException(404, "Unknown layer for this result")
-    return Response(png, media_type="image/png", headers=cache)
+    body, media = rendered
+    return Response(body, media_type=media, headers=cache)

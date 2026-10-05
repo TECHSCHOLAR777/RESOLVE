@@ -200,7 +200,8 @@ def check_layers(body: dict, expect_ae: bool = False):
             assert lg["type"] == "classes" and lg["classes"]
             assert all(re.fullmatch(r"#[0-9A-Fa-f]{6}", c["color"]) and c["label"] for c in lg["classes"])
         r = client.get(l["url"])
-        assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+        expected = "image/png" if lg["type"] == "classes" or l["id"] == "rgb" else "image/webp"
+        assert r.status_code == 200 and r.headers["content-type"] == expected
         assert Image.open(io.BytesIO(r.content)).size == size
         assert client.get(l["url"]).content == r.content  # cached render is stable
 

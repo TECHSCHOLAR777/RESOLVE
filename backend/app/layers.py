@@ -192,11 +192,16 @@ def save_layer(folder: Path, layer_id: str, arr: np.ndarray, style: dict):
     (folder / f"{layer_id}.json").write_text(json.dumps(style))
 
 
-def render_layer(folder: Path, layer_id: str, size: tuple[int, int]) -> bytes | None:
-    """PNG bytes (RGBA, `size` = (height, width)) for a stored layer, rendered once and cached on disk."""
-    png_path = folder / f"{layer_id}.png"
-    if png_path.exists():
-        return png_path.read_bytes()
+def render_layer(folder: Path, layer_id: str, size: tuple[int, int]) -> tuple[bytes, str] | None:
+    """Image bytes and media type for a stored layer at `size` = (height, width), rendered once and cached.
+
+    Continuous layers (ramps, three-channel composites) are opaque, so they go out as lossy WebP,
+    about 10x smaller than PNG. Class masks keep PNG for exact colours and transparency.
+    """
+    for ext, media in (("webp", "image/webp"), ("png", "image/png")):
+        cached = folder / f"{layer_id}.{ext}"
+        if cached.exists():
+            return cached.read_bytes(), media
     if not (folder / f"{layer_id}.npy").exists():
         return None
     arr = np.load(folder / f"{layer_id}.npy")
@@ -215,6 +220,11 @@ def render_layer(folder: Path, layer_id: str, size: tuple[int, int]) -> bytes | 
     if img.size != (size[1], size[0]):
         img = img.resize((size[1], size[0]), Image.BILINEAR)
     buf = io.BytesIO()
-    img.save(buf, "PNG", compress_level=3)
-    png_path.write_bytes(buf.getvalue())
-    return buf.getvalue()
+    if kind == "classes":
+        ext, media = "png", "image/png"
+        img.save(buf, "PNG", compress_level=3)
+    else:
+        ext, media = "webp", "image/webp"
+        img.convert("RGB").save(buf, "WEBP", quality=85, method=4)
+    (folder / f"{layer_id}.{ext}").write_bytes(buf.getvalue())
+    return buf.getvalue(), media

@@ -15,7 +15,10 @@ function saveBlob(blob: Blob, filename: string) {
 export async function downloadUrl(url: string, filename: string): Promise<void> {
   const res = await fetch(absUrl(url));
   if (!res.ok) throw new Error(`Download failed (${res.status}). The result may have expired.`);
-  saveBlob(await res.blob(), filename);
+  const blob = await res.blob();
+  // Continuous layers are served as WebP; keep the file extension honest.
+  if (blob.type === 'image/webp') filename = filename.replace(/\.png$/, '.webp');
+  saveBlob(blob, filename);
 }
 
 export function slug(name: string): string {

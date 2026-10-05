@@ -3,7 +3,7 @@ import { Layers } from 'lucide-react';
 import type { LayerInfo } from '../../api';
 import Legend from './Legend';
 
-const GROUP_ORDER = ['imagery', 'indices', 'maps', 'trust', 'model internals'];
+const GROUP_ORDER = ['imagery', 'indices', 'land cover', 'maps', 'trust', 'detail', 'model internals', 'alphaearth'];
 
 function groupRank(g: string): number {
   const i = GROUP_ORDER.indexOf(g.trim().toLowerCase());

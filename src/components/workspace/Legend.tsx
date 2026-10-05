@@ -7,6 +7,7 @@ const GRADIENTS: Record<string, string> = {
   rdylgn: 'linear-gradient(to right, #a50026, #f46d43, #fee08b, #a6d96a, #1a9850, #006837)',
   blues: 'linear-gradient(to right, #f7fbff, #c6dbef, #6baed6, #2171b5, #08306b)',
   greens: 'linear-gradient(to right, #f7fcf5, #c7e9c0, #74c476, #238b45, #00441b)',
+  plasma: 'linear-gradient(to right, #0d0887, #6a00a8, #b12a90, #e16462, #fca636, #f0f921)',
 };
 const FALLBACK = 'linear-gradient(to right, #111827, #6b7280, #f9fafb)';
 
@@ -15,6 +16,10 @@ export function gradientFor(colormap: string): string {
 }
 
 export default function Legend({ legend }: { legend: LayerLegend }) {
+  if (legend.type === 'ramp' && legend.colormap.toLowerCase() === 'rgb') {
+    // Three-channel composites (false colour, feature PCA, embeddings) have no single scale.
+    return <p className="text-[11px] text-muted">{legend.note ?? 'Three-channel composite'}</p>;
+  }
   if (legend.type === 'ramp') {
     return (
       <div className="min-w-0">
