@@ -11,3 +11,5 @@ Research_Material/
 /backend/models/
 __pycache__/
 .pytest_cache/
+
+test_images/
