@@ -1,3 +1,13 @@
+---
+title: RESOLVE backend
+emoji: 🛰️
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # RESOLVE backend (prototype)
 
 FastAPI service running SEN2SR-Lite RGBN x4 (about 0.4 M parameters, CPU) on 4-band Sentinel-2 10 m GeoTIFFs (B4 B3 B2 B8) to give a 2.5 m result. API contract: see `../PROTOTYPE_PLAN.md`.
@@ -35,13 +45,7 @@ Weights: Hugging Face repo `tacofoundation/sen2sr`, licence CC0-1.0 (public doma
 ## Deploy to a Hugging Face Space (free CPU)
 
 1. Create a Space with SDK "Docker".
-2. Push the contents of `backend/` as the Space repo root, with this at the top of the Space's `README.md`:
-
-       ---
-       title: RESOLVE backend
-       sdk: docker
-       app_port: 7860
-       ---
+2. Upload the contents of `backend/` as the Space repo root. This README already carries the Space front matter (`sdk: docker`, `app_port: 7860`). Easiest is the CLI, which handles the binary sample tiles: `hf upload <user>/<space> . . --repo-type space --exclude ".venv/*" "models/*" "__pycache__/*" ".pytest_cache/*"`.
 3. The build installs requirements and downloads the weights. The API is then at `https://<user>-<space>.hf.space/api/health`.
 4. Set `VITE_API_URL` on Vercel to that URL. CORS is open to all origins.
 
