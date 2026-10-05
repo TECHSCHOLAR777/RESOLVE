@@ -5,7 +5,6 @@ colorFrom: blue
 colorTo: green
 sdk: gradio
 sdk_version: 6.29.1
-python_version: "3.11"
 app_file: space.py
 pinned: false
 ---
@@ -21,7 +20,7 @@ Python 3.11 to 3.12 is needed (sen2sr does not support 3.14).
     cd backend
     python -m pip install uv
     python -m uv venv --python 3.11 .venv
-    python -m uv pip install --python .venv/Scripts/python.exe -r requirements.txt   # Linux/macOS: .venv/bin/python
+    python -m uv pip install --python .venv/Scripts/python.exe -r requirements-dev.txt --extra-index-url https://download.pytorch.org/whl/cpu   # Linux/macOS: .venv/bin/python
     .venv/Scripts/python -m uvicorn app.main:app --port 8000
 
 Weights download on first use into `backend/models/` (gitignored, about 7.5 MB).
@@ -44,16 +43,20 @@ Large inputs are tiled in 128 px tiles with 32 px overlap (the model is fixed to
 
 Weights: Hugging Face repo `tacofoundation/sen2sr`, licence CC0-1.0 (public domain dedication), so free non-commercial and commercial use is allowed. The `sen2sr` package is MIT. Sentinel-2 data is free under the Copernicus licence; please credit Copernicus Sentinel data.
 
-## Deploy to a Hugging Face Space (free CPU, Gradio SDK)
+## Deploy to a Hugging Face Space
 
-Docker Spaces are paid, so the backend runs on the free Gradio SDK. `space.py` loads the model and serves the same FastAPI app on port 7860, with a one-line Gradio page at `/`.
+Live: `https://raone777-resolve-backend.hf.space` (Space `RAONE777/resolve-backend`). The production front end uses this URL by default (see `src/api.ts`).
 
-1. Create a Space with SDK "Gradio", template "Blank", free CPU hardware.
-2. From `backend/`, upload this folder as the Space repo root. This README already carries the Space front matter (`sdk: gradio`, `app_file: space.py`, Python 3.11). The CLI handles the binary sample tiles:
-   `hf upload <user>/<space> . . --repo-type space --exclude ".venv/*" "models/*" "__pycache__/*" ".pytest_cache/*" "Dockerfile"`
-3. The Space installs `requirements.txt` and downloads the weights on first start. The API is then at `https://<user>-<space>.hf.space/api/health`.
-4. Set `VITE_API_URL` on Vercel to `https://<user>-<space>.hf.space` and redeploy. CORS is open to all origins.
+Docker Spaces are paid, so the backend runs under the Gradio SDK. New free Gradio Spaces get ZeroGPU hardware and cannot be switched to plain CPU without PRO. `space.py` handles the ZeroGPU rules:
 
-`Dockerfile` is kept for paid Docker Spaces or other hosts and is not needed for the Gradio Space.
+- ZeroGPU runs Python 3.10 and only torch 2.8 to 2.13, so `requirements.txt` pins `torch==2.10.0` and keeps other pins loose. Dev and test tools are in `requirements-dev.txt`.
+- ZeroGPU refuses to start without a `@spaces.GPU` function, and it only reports one from a hook in `gr.Blocks.launch()`. Since uvicorn serves the app, `space.py` defines a placeholder GPU function and calls `spaces.zero.startup()` itself. The model is small and runs on CPU.
+- The Space sets `GRADIO_SSR_MODE`. With SSR on, Gradio starts a Node server on port 7860 that answers every path with HTML, so `space.py` mounts Gradio with `ssr_mode=False` and binds uvicorn to 7860.
+
+To redeploy, upload this folder as the Space repo root (front matter in this README sets `sdk: gradio` and `app_file: space.py`):
+
+    python -c "from huggingface_hub import HfApi; HfApi().upload_folder(repo_id='RAONE777/resolve-backend', repo_type='space', folder_path='.', ignore_patterns=['.venv/*','models/*','**/__pycache__/*','__pycache__/*','.pytest_cache/*','Dockerfile'])"
+
+`Dockerfile` is kept for paid Docker Spaces or other hosts.
 
 Results are stored in the system temp folder (last 50 kept) and are lost on restart.
