@@ -48,6 +48,41 @@ export interface PatchInfo {
   count: number;
 }
 
+export type LayerLegend =
+  | { type: 'ramp'; min: number; max: number; min_label: string; max_label: string; colormap: string }
+  | { type: 'classes'; classes: { label: string; color: string }[] };
+
+/** One selectable product layer, pixel-aligned with output.png. Optional: older backends omit `layers`. */
+export interface LayerInfo {
+  id: string;
+  name: string;
+  group: string;
+  url: string;
+  legend?: LayerLegend | null;
+}
+
+export interface StageTiming {
+  id: string;
+  ms: number;
+}
+
+export interface AlphaEarthInfo {
+  available: boolean;
+  year?: number | null;
+  source?: string | null;
+  note?: string | null;
+}
+
+export interface ConfidenceInfo {
+  mean: number;
+  high_fraction: number;
+}
+
+export interface LockInfo {
+  consistency_before: number;
+  consistency_after: number;
+}
+
 export interface SuperresResult {
   id: string;
   input: ImageInfo;
@@ -58,6 +93,11 @@ export interface SuperresResult {
   notes: string[];
   scene?: SceneInfo | null;
   patches?: PatchInfo | null;
+  layers?: LayerInfo[] | null;
+  stages?: StageTiming[] | null;
+  alphaearth?: AlphaEarthInfo | null;
+  confidence?: ConfidenceInfo | null;
+  lock?: LockInfo | null;
 }
 
 /** Resolve a backend path (relative or absolute) to an absolute URL. */

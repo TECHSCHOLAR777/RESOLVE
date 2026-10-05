@@ -3,126 +3,83 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  Home,
-  FolderKanban,
-  HelpCircle,
-  Settings,
-  Upload,
-  Download,
-  RotateCcw,
-  Maximize2,
-  Minimize2,
-  ZoomIn,
-  Sparkles,
-  ArrowRight,
-  ChevronDown,
-  MapPin,
-  Clock,
-  Check,
-  SplitSquareHorizontal,
-  Columns,
-  FileImage,
-  Sparkle,
-  Satellite,
-  Map as MapIcon
-} from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { ArrowRight, ChevronDown, Check, Download, HelpCircle, Menu, Sparkles } from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { absUrl, outputTifUrl } from './api';
+import { InspectorPanel } from './components/inspector';
 import { RunProvider, useRun, type RecentItem } from './components/run/RunContext';
-import RunPage from './components/run/RunPage';
+import Drawer from './components/workspace/Drawer';
+import NavSidebar, { type NavKey } from './components/workspace/NavSidebar';
+import RecentActivity from './components/workspace/RecentActivity';
+import SampleGallery from './components/workspace/SampleGallery';
+import UploadCard from './components/workspace/UploadCard';
+import Viewer from './components/workspace/Viewer';
+import { useLayout } from './components/workspace/useBreakpoint';
 import { ThemeToggle } from './theme';
+
+const RunPage = lazy(() => import('./components/run/RunPage'));
 
 export default function App() {
   return (
     <BrowserRouter>
       <RunProvider>
-        <Routes>
-          <Route path="/" element={<Workspace />} />
-          <Route path="/run" element={<RunPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <Suspense fallback={<div className="min-h-screen bg-page" />}>
+          <Routes>
+            <Route path="/" element={<Workspace />} />
+            <Route path="/run" element={<RunPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </RunProvider>
     </BrowserRouter>
   );
 }
 
+type Tab = 'upload' | 'viewer' | 'details';
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'upload', label: 'Upload' },
+  { key: 'viewer', label: 'Viewer' },
+  { key: 'details', label: 'Details' },
+];
+
 function Workspace() {
-  const [activeNav, setActiveNav] = useState<'enhance' | 'results' | 'help' | 'settings'>('enhance');
-  const [viewMode, setViewMode] = useState<'split' | 'side-by-side'>('split');
-
-  const { result, imageName, recentItems, samples: samplesList, isBusy: isLoading, initializing, startSample, startUpload } = useRun();
-
-  // Imagery state
-  const [, setError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [zoomLevel, setZoomLevel] = useState<number>(1);
-  const [splitPos, setSplitPos] = useState<number>(50); // percentage for split slider
-  const [isSplitDragging, setIsSplitDragging] = useState<boolean>(false);
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [isSaved, setIsSaved] = useState<boolean>(false);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const viewerContainerRef = useRef<HTMLDivElement>(null);
-
-  // Fallback to Punjab scene when result is not loaded yet so viewer is never an empty box
-  const inputSrc = result ? absUrl(result.input.png) : '/assets/punjab.jpg';
-  const outputSrc = result ? absUrl(result.output.png) : '/assets/punjab.jpg';
-
-  // Tile shape drives the layout: clearly portrait tiles go side by side, everything else stacks.
-  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
-  const dims = result ? { w: result.input.width, h: result.input.height } : naturalSize;
-  const aspect = dims && dims.w > 0 && dims.h > 0 ? dims.w / dims.h : 1;
-  const isPortrait = aspect < 0.8;
-  const panelStyle: React.CSSProperties = {
-    aspectRatio: String(aspect),
-    width: `min(100%, calc(${isPortrait ? 70 : 65}vh * ${aspect}))`,
-  };
-  const handleNaturalSize = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
-    if (w > 0 && h > 0) setNaturalSize({ w, h });
-  };
-
-  // A new result starts un-zoomed.
+  const layout = useLayout();
+  const [activeNav, setActiveNav] = useState<NavKey>('enhance');
+  const [navOpen, setNavOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  // Coming back from a finished run lands on the viewer; a fresh visit starts at the upload tab.
+  const { consumeFromRun } = useRun();
+  const [tab, setTab] = useState<Tab>('upload');
   useEffect(() => {
-    setZoomLevel(1);
-  }, [result]);
+    if (consumeFromRun()) setTab('viewer');
+  }, [consumeFromRun]);
 
-  // Handle local file upload
-  const handleFile = (file: File) => {
-    startUpload(file);
+  const { result, imageName, recentItems, samples, isBusy, initializing, startSample, startUpload } = useRun();
+  const [isSaved, setIsSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const closeInspector = useCallback(() => setInspectorOpen(false), []);
+  const closeNav = useCallback(() => setNavOpen(false), []);
+
+  const handleEnhance = () => {
+    if (samples.length > 0) startSample(samples[Math.floor(Math.random() * samples.length)]);
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0]);
-    }
+  const markSaved = () => {
+    setIsSaved(true);
+    setTimeout(() => setIsSaved(false), 2500);
   };
 
-  // Fullscreen toggle
-  const toggleFullscreen = () => {
-    if (!viewerContainerRef.current) return;
-    if (!document.fullscreenElement) {
-      viewerContainerRef.current.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
-    }
-  };
-
-  // Download the real 2.5 m GeoTIFF or enhanced preview
-  const handleSaveImagery = async () => {
+  // Download the real 2.5 m GeoTIFF, or the preview when no scene has run yet
+  const handleSave = async () => {
+    setSaveError(null);
     if (!result) {
       const a = document.createElement('a');
-      a.href = outputSrc;
+      a.href = '/assets/punjab.jpg';
       a.download = `${imageName || 'enhanced'}_2.5m.png`;
       a.click();
-      setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 2500);
+      markSaved();
       return;
     }
     try {
@@ -136,540 +93,206 @@ function Workspace() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(href);
-      setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 2500);
+      markSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  // Handle split slider drag
-  const handleSplitMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isSplitDragging) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const percent = Math.max(5, Math.min(95, (x / rect.width) * 100));
-    setSplitPos(percent);
-  };
-
-  const handleEnhanceClick = () => {
-    if (samplesList.length > 0) {
-      const randomSample = samplesList[Math.floor(Math.random() * samplesList.length)];
-      startSample(randomSample);
-    } else if (fileInputRef.current) {
-      fileInputRef.current.click();
+      setSaveError(err instanceof Error ? err.message : String(err));
     }
   };
 
   const handleSelectRecent = (item: RecentItem) => {
     if (item.sampleId) {
       startSample({ id: item.sampleId, name: item.title });
-    } else if (samplesList.length > 0) {
-      const matched = samplesList.find(s => s.name.toLowerCase().includes(item.id.toLowerCase())) || samplesList[0];
+    } else if (samples.length > 0) {
+      const matched = samples.find((s) => s.name.toLowerCase().includes(item.id.toLowerCase())) || samples[0];
       startSample({ id: matched.id, name: item.title });
     }
   };
 
+  const mobile = layout === 'mobile';
+  const desktop = layout === 'desktop';
+
+  const upload = <UploadCard onFile={startUpload} />;
+  const gallery = (
+    <SampleGallery
+      samples={samples}
+      loading={initializing}
+      busy={isBusy}
+      activeName={imageName}
+      onPick={(s) => startSample({ id: s.id, name: s.name })}
+      className={mobile ? 'sm:grid-cols-2' : ''}
+    />
+  );
+
+  const viewer = (
+    <Viewer result={result} imageName={imageName} initializing={initializing} onOpenInspector={layout === 'laptop' ? () => setInspectorOpen(true) : undefined} />
+  );
+
+  const actions = (
+    <div className="flex flex-wrap items-center justify-end gap-3 max-sm:[&>button]:flex-1">
+      {saveError && (
+        <span role="alert" className="mr-auto text-xs text-red-600 dark:text-red-400 max-sm:basis-full">
+          {saveError}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={handleEnhance}
+        disabled={isBusy || samples.length === 0}
+        className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#6366F1] to-[#2563EB] whitespace-nowrap px-6 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:from-[#4F46E5] hover:to-[#1D4ED8] hover:shadow-md active:scale-98 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Sparkles className="h-4 w-4" />
+        <span>Enhance Image</span>
+        <ArrowRight className="ml-1 h-3.5 w-3.5 max-sm:hidden" />
+      </button>
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={isBusy}
+        className="flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-accent-line bg-accent-soft px-5 py-2.5 text-xs font-semibold text-accent-text shadow-2xs transition-all hover:bg-accent-soft-hover active:scale-98 disabled:cursor-not-allowed disabled:opacity-50 dark:shadow-none"
+      >
+        {isSaved ? (
+          <>
+            <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-emerald-700 dark:text-emerald-400">Downloaded</span>
+          </>
+        ) : (
+          <>
+            <Download className="h-4 w-4" />
+            <span>Save Image</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+
+  const inspector = <InspectorPanel result={result} sceneName={imageName} loading={isBusy && !result} />;
+  const recent = <RecentActivity items={recentItems} onSelect={handleSelectRecent} onViewAll={() => setActiveNav('results')} />;
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-page text-body font-sans select-none antialiased">
-      {/* Left Workspace Navigation Sidebar with Seamless Earth Theme */}
-      <aside className="w-64 relative shrink-0 z-20 flex flex-col justify-between overflow-hidden bg-gradient-to-b from-[#060D1E] via-[#09152F] to-[#030712] text-white border-r border-slate-800/80 shadow-[4px_0_24px_rgba(0,0,0,0.15)] dark:shadow-none dark:border-slate-800">
-        {/* Seamless Earth Background Atmosphere & Curved Horizon */}
-        <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
-          {/* Earth image blended seamlessly into the sidebar */}
-          <img
-            src="/assets/earth_bottom_left.jpg"
-            alt="Earth Horizon"
-            className="absolute -bottom-10 -left-12 w-[340px] h-[340px] object-cover opacity-60 mix-blend-screen pointer-events-none"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = '/assets/earth_sidebar.jpg';
-            }}
-          />
-          {/* Ambient radial atmospheric glows */}
-          <div className="absolute -top-24 -left-24 w-60 h-60 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />
-          <div className="absolute bottom-16 -right-16 w-52 h-52 rounded-full bg-cyan-400/15 blur-2xl pointer-events-none" />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#060D1E]/80 via-transparent to-[#030712]/90 pointer-events-none" />
-        </div>
+    <div className="flex h-dvh w-full select-none overflow-hidden bg-page font-sans text-body antialiased">
+      {!mobile && <NavSidebar active={activeNav} onSelect={setActiveNav} />}
 
-        {/* Top: Logo & Main Navigation */}
-        <div className="p-5 flex flex-col relative z-10">
-          {/* RESOLVE Brand Logo with Orbital Ring */}
-          <div className="flex items-center gap-3 mb-8 cursor-pointer select-none">
-            <div className="relative w-10 h-10 rounded-full overflow-hidden shrink-0 shadow-lg border border-cyan-400/30 flex items-center justify-center bg-[#0B1528] ring-2 ring-blue-500/20">
-              <img
-                src="/assets/logo_earth.png"
-                alt="Resolve Earth Logo"
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <Satellite className="w-4 h-4 text-white drop-shadow" />
-              </div>
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        {mobile ? (
+          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-line bg-card/95 px-4 backdrop-blur">
+            <div className="flex items-center gap-2.5">
+              <img src="/assets/logo_earth.png" alt="" className="h-8 w-8 rounded-full border border-cyan-400/30 object-cover ring-2 ring-blue-500/20" />
+              <span className="text-[15px] font-black tracking-tight text-ink">RESOLVE</span>
             </div>
-            <div className="flex flex-col">
-              <span className="text-[17px] font-black tracking-tight text-white leading-tight flex items-center gap-1 drop-shadow-sm">
-                RESOLVE
-              </span>
-              <span className="text-[10px] text-blue-200/70 font-medium leading-tight">
-                Satellite Super-Resolution
-              </span>
-              <span className="text-[10px] text-blue-200/50 font-medium leading-tight">
-                for Sharper Earth Insights
-              </span>
+            <div className="flex items-center gap-1">
+              <ThemeToggle />
+              <button
+                type="button"
+                onClick={() => setNavOpen(true)}
+                aria-label="Open navigation"
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-line text-body transition-colors hover:bg-sunken hover:text-ink"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
             </div>
-          </div>
-
-          {/* Navigation Links with Glassmorphism */}
-          <nav className="space-y-1.5">
+          </header>
+        ) : (
+          <header className="flex h-14 shrink-0 items-center justify-end gap-3 px-6 xl:px-8">
             <button
-              onClick={() => setActiveNav('enhance')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
-                activeNav === 'enhance'
-                  ? 'bg-blue-600/30 text-white border border-blue-400/40 shadow-sm backdrop-blur-md'
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Home className={`w-4 h-4 ${activeNav === 'enhance' ? 'text-cyan-400' : 'text-slate-400'}`} />
-              <span>Enhance</span>
-            </button>
-
-            <button
-              onClick={() => setActiveNav('results')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeNav === 'results'
-                  ? 'bg-blue-600/30 text-white border border-blue-400/40 shadow-sm backdrop-blur-md'
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <FolderKanban className="w-4 h-4 text-slate-400" />
-              <span>My Results</span>
-            </button>
-
-            <div className="pt-4 pb-1">
-              <div className="h-px bg-white/10 mb-4" />
-            </div>
-
-            <button
+              type="button"
               onClick={() => setActiveNav('help')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeNav === 'help'
-                  ? 'bg-blue-600/30 text-white border border-blue-400/40 shadow-sm backdrop-blur-md'
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
+              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-transparent text-body transition-all hover:border-line hover:bg-card hover:text-ink"
+              title="Help"
+              aria-label="Help"
             >
-              <HelpCircle className="w-4 h-4 text-slate-400" />
-              <span>Help & Support</span>
+              <HelpCircle className="h-5 w-5 text-muted" />
             </button>
-
-            <button
-              onClick={() => setActiveNav('settings')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeNav === 'settings'
-                  ? 'bg-blue-600/30 text-white border border-blue-400/40 shadow-sm backdrop-blur-md'
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Settings className="w-4 h-4 text-slate-400" />
-              <span>Settings</span>
-            </button>
-          </nav>
-        </div>
-
-        {/* Seamless Lower Earth Caption Integration (without isolated card box) */}
-        <div className="p-5 relative z-10 select-none">
-          <div className="flex items-center gap-1.5 mb-1 text-[11px] font-semibold text-cyan-300 tracking-wider uppercase">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span>Earth Observation</span>
-          </div>
-          <p className="text-[11px] text-slate-300/80 leading-relaxed font-normal">
-            From satellite imagery to sharper insights for a better tomorrow.
-          </p>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-y-auto">
-        {/* Top Header */}
-        <header className="h-14 px-6 xl:px-8 flex items-center justify-end gap-3 shrink-0">
-          <button
-            onClick={() => setActiveNav('help')}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-body hover:text-ink hover:bg-card border border-transparent hover:border-line transition-all cursor-pointer"
-            title="Help"
-          >
-            <HelpCircle className="w-5 h-5 text-muted" />
-          </button>
-
-          <ThemeToggle />
-
-          {/* User Profile Avatar with dropdown arrow */}
-          <div className="flex items-center gap-1.5 pl-1 cursor-pointer">
-            <div className="w-8 h-8 rounded-full bg-[#2563EB] text-white flex items-center justify-center font-bold text-xs shadow-sm">
-              RS
+            <ThemeToggle />
+            <div className="flex cursor-pointer items-center gap-1.5 pl-1">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#2563EB] text-xs font-bold text-white shadow-sm">RS</div>
+              <ChevronDown className="h-3.5 w-3.5 text-muted" />
             </div>
-            <ChevronDown className="w-3.5 h-3.5 text-muted" />
-          </div>
-        </header>
+          </header>
+        )}
 
-        {/* Content Body Container - Fully responsive & properly scaled */}
-        <main className="flex-1 px-6 xl:px-10 pb-6 w-full mx-auto flex flex-col justify-between">
+        <main className="mx-auto flex w-full max-w-[1800px] flex-1 flex-col gap-6 px-4 pb-8 sm:px-6 xl:px-8">
           <div>
-            {/* Headline Banner */}
-            <div className="mb-4">
-              <h1 className="text-2xl xl:text-3xl font-extrabold text-ink tracking-tight">
-                Enhance Satellite Imagery <span className="text-accent-text">with AI</span>
-              </h1>
-              <p className="text-xs xl:text-sm text-muted mt-1">
-                Upload a Sentinel-2 image and get 4× higher resolution (2.5 m) while preserving real-world fidelity.
-              </p>
-            </div>
-
-            {/* Top Workspace Grid: Upload Card (Left) & Compare Viewer (Right) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-              {/* Upload Card */}
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDragging(true);
-                }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={handleDrop}
-                className={`lg:col-span-4 bg-card rounded-2xl border-2 ${
-                  isDragging ? 'border-[#2563EB] bg-blue-50/30 dark:bg-blue-500/10' : 'border-dashed border-line-strong'
-                } p-6 flex flex-col items-center justify-center text-center shadow-xs dark:shadow-none transition-all relative group min-h-[320px]`}
-              >
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-16 h-16 rounded-full bg-accent-soft text-accent-text flex items-center justify-center mb-4 cursor-pointer hover:scale-105 transition-transform shadow-xs dark:shadow-none"
-                >
-                  <Upload className="w-7 h-7 stroke-[2.2]" />
-                </div>
-
-                <h3 className="text-base font-bold text-ink mb-1">
-                  Upload Sentinel-2 Image
-                </h3>
-                <p className="text-xs text-muted mb-1">
-                  Drag and drop a file here, or click to browse
-                </p>
-                <p className="text-[11px] text-faint font-mono mb-5">
-                  Supports .tif, .jp2, .png (Sentinel-2 L2A)
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-sm hover:shadow transition-all cursor-pointer"
-                >
-                  <FileImage className="w-4 h-4" />
-                  <span>Choose Image</span>
-                </button>
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".tif,.tiff,.jp2,.png,.jpg,.jpeg,image/*"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      handleFile(e.target.files[0]);
-                    }
-                  }}
-                  className="hidden"
-                />
-              </div>
-
-              {/* Comparison Viewer */}
-              <div
-                ref={viewerContainerRef}
-                className="lg:col-span-8 bg-card rounded-2xl border border-line p-4 shadow-xs dark:shadow-none flex flex-col justify-between"
-              >
-                {/* Header inside viewer card */}
-                <div className="flex items-center justify-between pb-3 border-b border-line-soft">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <MapIcon className="w-4 h-4 text-faint shrink-0" />
-                    <span className="text-xs font-bold text-ink truncate">
-                      {imageName}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setZoomLevel((z) => (z >= 2.5 ? 1 : z + 0.5))}
-                      title="Zoom"
-                      className="w-7 h-7 rounded-lg border border-line flex items-center justify-center text-muted hover:text-ink hover:bg-sunken transition-colors cursor-pointer"
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setZoomLevel(1)}
-                      title="Reset"
-                      className="w-7 h-7 rounded-lg border border-line flex items-center justify-center text-muted hover:text-ink hover:bg-sunken transition-colors cursor-pointer"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={toggleFullscreen}
-                      title="Fullscreen"
-                      className="w-7 h-7 rounded-lg border border-line flex items-center justify-center text-muted hover:text-ink hover:bg-sunken transition-colors cursor-pointer"
-                    >
-                      {isFullscreen ? (
-                        <Minimize2 className="w-3.5 h-3.5" />
-                      ) : (
-                        <Maximize2 className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Viewport Area */}
-                <div className="relative my-3 rounded-xl overflow-hidden bg-slate-900 aspect-[16/9] h-[340px] xl:h-[400px] max-h-[500px] flex items-center justify-center select-none">
-                  {viewMode === 'split' ? (
-                    <div
-                      onMouseDown={() => setIsSplitDragging(true)}
-                      onMouseUp={() => setIsSplitDragging(false)}
-                      onMouseLeave={() => setIsSplitDragging(false)}
-                      onMouseMove={handleSplitMouseMove}
-                      className="relative w-full h-full cursor-ew-resize overflow-hidden"
-                    >
-                      <img
-                        src={outputSrc}
-                        alt="Enhanced Satellite Scene"
-                        onLoad={handleNaturalSize}
-                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-100"
-                        style={{ transform: `scale(${zoomLevel})` }}
-                      />
-
-                      <div
-                        className="absolute inset-0 overflow-hidden"
-                        style={{ clipPath: `inset(0 ${100 - splitPos}% 0 0)` }}
-                      >
-                        <img
-                          src={inputSrc}
-                          alt="Original Satellite Scene"
-                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-100"
-                          style={{
-                            transform: `scale(${zoomLevel})`,
-                            imageRendering: 'pixelated',
-                          }}
-                        />
-                      </div>
-
-                      {/* Floating Labels */}
-                      <div className="absolute top-3 left-3 z-10 pointer-events-none">
-                        <div className="bg-black/65 backdrop-blur-md text-white text-[11px] font-medium px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-sm border border-white/10">
-                          <span className="w-2 h-2 rounded-full bg-amber-400" />
-                          <span>Original Input (10 m GSD)</span>
-                        </div>
-                      </div>
-
-                      <div className="absolute top-3 right-3 z-10 pointer-events-none">
-                        <div className="bg-[#2563EB]/90 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-sm border border-white/10">
-                          <Sparkle className="w-3 h-3 fill-white" />
-                          <span>Enhanced Output (2.5 m)</span>
-                        </div>
-                      </div>
-
-                      {/* Draggable Divider */}
-                      <div
-                        className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_8px_rgba(0,0,0,0.5)] z-20 pointer-events-none"
-                        style={{ left: `${splitPos}%` }}
-                      >
-                        <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-white text-slate-700 shadow-md flex items-center justify-center border border-slate-300 pointer-events-auto cursor-ew-resize">
-                          <div className="flex items-center text-[10px] font-bold text-slate-500 tracking-tighter">
-                            ‹›
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Bottom Info Badges */}
-                      <div className="absolute bottom-3 left-3 z-10 pointer-events-none">
-                        <span className="bg-black/70 backdrop-blur-md text-slate-200 text-[10px] font-mono px-2 py-0.5 rounded shadow-sm">
-                          Sentinel-2 L2A
-                        </span>
-                      </div>
-
-                      <div className="absolute bottom-3 right-3 z-10 pointer-events-none">
-                        <span className="bg-black/70 backdrop-blur-md text-slate-200 text-[10px] font-mono px-2 py-0.5 rounded shadow-sm">
-                          4-Band Multispectral
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 w-full h-full gap-1 p-1 bg-slate-950">
-                      <div className="relative w-full h-full overflow-hidden rounded">
-                        <img
-                          src={inputSrc}
-                          alt="Original"
-                          className="w-full h-full object-cover"
-                          style={{
-                            transform: `scale(${zoomLevel})`,
-                            imageRendering: 'pixelated',
-                          }}
-                        />
-                        <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded">
-                          Original (10m)
-                        </div>
-                      </div>
-                      <div className="relative w-full h-full overflow-hidden rounded">
-                        <img
-                          src={outputSrc}
-                          alt="Enhanced"
-                          className="w-full h-full object-cover"
-                          style={{ transform: `scale(${zoomLevel})` }}
-                        />
-                        <div className="absolute top-2 left-2 bg-[#2563EB]/90 text-white text-[10px] px-2 py-0.5 rounded">
-                          Enhanced (2.5m)
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {initializing && (
-                    <div className="absolute inset-0 z-30 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center text-white">
-                      <div className="w-10 h-10 rounded-full border-3 border-white/30 border-t-[#2563EB] animate-spin mb-2" />
-                      <span className="text-xs font-semibold tracking-wide">
-                        Loading scene
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* View Mode Toggle */}
-                <div className="flex items-center justify-between pt-1">
-                  <div className="flex items-center gap-1.5 text-xs text-faint">
-                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-                    <span>Real-time High Fidelity Preview</span>
-                  </div>
-
-                  <div className="inline-flex bg-sunken p-0.5 rounded-lg border border-line">
-                    <button
-                      onClick={() => setViewMode('split')}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                        viewMode === 'split'
-                          ? 'bg-raised text-accent-text shadow-2xs dark:shadow-none'
-                          : 'text-muted hover:text-ink'
-                      }`}
-                    >
-                      <SplitSquareHorizontal className="w-3 h-3" />
-                      <span>Split</span>
-                    </button>
-                    <button
-                      onClick={() => setViewMode('side-by-side')}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                        viewMode === 'side-by-side'
-                          ? 'bg-raised text-accent-text shadow-2xs dark:shadow-none'
-                          : 'text-muted hover:text-ink'
-                      }`}
-                    >
-                      <Columns className="w-3 h-3" />
-                      <span>Side-by-Side</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom Control Bar */}
-            <div className="mt-5 flex flex-wrap items-center justify-end gap-4">
-              {/* Action Buttons */}
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleEnhanceClick}
-                  disabled={isLoading}
-                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#6366F1] to-[#2563EB] hover:from-[#4F46E5] hover:to-[#1D4ED8] text-white text-xs font-bold shadow-sm hover:shadow-md transition-all active:scale-98 disabled:opacity-50 cursor-pointer"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>Enhance Image</span>
-                  <ArrowRight className="w-3.5 h-3.5 ml-1" />
-                </button>
-
-                <button
-                  onClick={handleSaveImagery}
-                  disabled={isLoading}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent-soft hover:bg-accent-soft-hover text-accent-text text-xs font-semibold border border-accent-line disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-98 shadow-2xs dark:shadow-none cursor-pointer"
-                >
-                  {isSaved ? (
-                    <>
-                      <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                      <span className="text-emerald-700 dark:text-emerald-400">Downloaded</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      <span>Save Image</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
+            <h1 className="text-xl font-extrabold tracking-tight text-ink sm:text-2xl xl:text-3xl">
+              Enhance Satellite Imagery <span className="text-accent-text">with AI</span>
+            </h1>
+            <p className="mt-1 text-xs text-muted xl:text-sm">
+              Upload a Sentinel-2 image and get 4× higher resolution (2.5 m) while preserving real-world fidelity.
+            </p>
           </div>
 
-          {/* Recent Activity Section (Only shown when items exist) */}
-          {recentItems.length > 0 && (
-            <div className="mt-8">
-              <div className="flex items-center justify-between mb-3.5">
-                <h2 className="text-base font-bold text-ink">
-                  Recent Activity
-                </h2>
-                <button
-                  onClick={() => setActiveNav('results')}
-                  className="text-xs font-semibold text-accent-text hover:text-accent-text-hover flex items-center gap-1 transition-colors cursor-pointer"
-                >
-                  <span>View All</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* Dynamic Cards Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {recentItems.map((item) => (
-                  <div
-                    key={item.id}
-                    onClick={() => handleSelectRecent(item)}
-                    className="group bg-card rounded-xl border border-line overflow-hidden shadow-2xs dark:shadow-none hover:shadow-md dark:hover:shadow-none dark:hover:border-line-strong transition-all cursor-pointer flex flex-col justify-between"
+          {mobile ? (
+            <>
+              <div role="tablist" aria-label="Workspace sections" className="grid grid-cols-3 rounded-xl border border-line bg-sunken p-1">
+                {TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    role="tab"
+                    id={`tab-${t.key}`}
+                    aria-selected={tab === t.key}
+                    aria-controls={`panel-${t.key}`}
+                    onClick={() => setTab(t.key)}
+                    className={`cursor-pointer rounded-lg py-2 text-xs font-semibold transition-all ${
+                      tab === t.key ? 'bg-raised text-accent-text shadow-2xs dark:shadow-none' : 'text-muted hover:text-ink'
+                    }`}
                   >
-                    <div className="relative aspect-[16/10] overflow-hidden bg-sunken">
-                      <img
-                        src={item.imgUrl}
-                        alt={item.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                      <div className="absolute top-2 right-2 bg-amber-50/90 text-amber-900 border border-amber-200/60 dark:bg-amber-400/15 dark:text-amber-200 dark:border-amber-300/20 font-bold text-[10px] px-1.5 py-0.5 rounded shadow-2xs dark:shadow-none backdrop-blur-xs">
-                        {item.badge}
-                      </div>
-                    </div>
-
-                    <div className="p-3 flex items-center justify-between">
-                      <div>
-                        <div className="text-xs font-bold text-ink group-hover:text-accent-text transition-colors truncate max-w-[150px]">
-                          {item.title}
-                        </div>
-                        <div className="text-[11px] text-faint mt-0.5">
-                          {item.timeAgo}
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const a = document.createElement('a');
-                          a.href = item.imgUrl;
-                          a.download = `${item.id}_enhanced.png`;
-                          a.click();
-                        }}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-faint hover:text-accent-text hover:bg-accent-soft transition-colors"
-                        title="Download image"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
+                    {t.label}
+                  </button>
                 ))}
               </div>
-            </div>
+
+              <div role="tabpanel" id="panel-upload" aria-labelledby="tab-upload" hidden={tab !== 'upload'} className="flex flex-col gap-6">
+                {upload}
+                {gallery}
+                {recent}
+              </div>
+              <div role="tabpanel" id="panel-viewer" aria-labelledby="tab-viewer" hidden={tab !== 'viewer'} className="flex flex-col gap-4">
+                {viewer}
+                {actions}
+              </div>
+              {tab === 'details' && (
+                <div role="tabpanel" id="panel-details" aria-labelledby="tab-details">
+                  {inspector}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div
+                className={`grid items-start gap-5 ${
+                  desktop ? 'grid-cols-[17rem_minmax(0,1fr)_19rem]' : 'grid-cols-[18rem_minmax(0,1fr)]'
+                }`}
+              >
+                <div className="flex flex-col gap-5">
+                  {upload}
+                  {gallery}
+                </div>
+                <div className="flex min-w-0 flex-col gap-4">
+                  {viewer}
+                  {actions}
+                </div>
+                {desktop && <div className="sticky top-2 max-h-[calc(100dvh-1rem)] overflow-y-auto pr-1">{inspector}</div>}
+              </div>
+              {recent}
+            </>
           )}
         </main>
       </div>
+
+      <Drawer open={navOpen && mobile} onClose={closeNav} side="left" title="Navigation" bare widthClass="w-72">
+        <NavSidebar
+          active={activeNav}
+          onSelect={(k) => {
+            setActiveNav(k);
+            closeNav();
+          }}
+          className="h-full min-h-[480px] w-full"
+        />
+      </Drawer>
+
+      <Drawer open={inspectorOpen && layout === 'laptop'} onClose={closeInspector} side="right" title="Scene details" widthClass="w-[380px]">
+        <div className="p-3">{inspector}</div>
+      </Drawer>
     </div>
   );
 }

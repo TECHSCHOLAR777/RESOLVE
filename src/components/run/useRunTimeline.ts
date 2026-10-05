@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { mapStageMs } from './stageTimings';
 import type { RunState } from './RunContext';
 import {
   PRE_END,
@@ -127,7 +128,8 @@ export function useRunTimeline(run: RunState, assetsReady: boolean): TimelineVie
   const { vt } = clock;
   const held = !ready && !failed && vt >= PRE_END;
   const runtimeMs = result ? result.runtime_ms : null;
-  const stages = useMemo(() => stageViews(plan, vt, runtimeMs), [plan, vt, runtimeMs]);
+  const realMs = useMemo(() => (result?.stages?.length ? mapStageMs(result.stages) : null), [result]);
+  const stages = useMemo(() => stageViews(plan, vt, runtimeMs, realMs), [plan, vt, runtimeMs, realMs]);
   const patches = useMemo(() => patchStates(plan, vt, held), [plan, vt, held]);
   const complete = ready && vt >= plan.total;
 

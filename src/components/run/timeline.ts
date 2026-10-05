@@ -126,11 +126,12 @@ export interface StageView {
   durationMs: number | null;
 }
 
-export function stageViews(plan: Plan, vt: number, runtimeMs: number | null): StageView[] {
+export function stageViews(plan: Plan, vt: number, runtimeMs: number | null, realMs: (number | null)[] | null = null): StageView[] {
   return plan.start.map((s, i) => {
     const e = plan.end[i];
     if (vt >= e) {
-      const dur = i === BACKBONE && runtimeMs ? Math.round(runtimeMs) : Math.round(e - s);
+      const real = realMs?.[i];
+      const dur = real != null ? Math.round(real) : i === BACKBONE && runtimeMs ? Math.round(runtimeMs) : Math.round(e - s);
       return { status: 'done', progress: 1, durationMs: dur };
     }
     if (vt >= s) return { status: 'running', progress: Math.min(1, (vt - s) / (e - s)), durationMs: null };

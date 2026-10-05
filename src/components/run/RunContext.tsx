@@ -45,7 +45,9 @@ interface RunContextValue {
   startSample: (sample: { id: string; name: string }) => void;
   startUpload: (file: File) => void;
   retry: () => void;
-  finishRun: () => void;
+  finishRun: (completed?: boolean) => void;
+  /** True once after a finished run returned to the workspace, so it can open on the viewer. */
+  consumeFromRun: () => boolean;
 }
 
 const RunContext = createContext<RunContextValue | null>(null);
@@ -121,7 +123,16 @@ export function RunProvider({ children }: { children: ReactNode }) {
     if (r) launch(r.label, r.job, { sampleId: r.sampleId, dims: r.dims });
   }, [launch]);
 
-  const finishRun = useCallback(() => setRun(null), []);
+  const fromRunRef = useRef(false);
+  const finishRun = useCallback((completed = false) => {
+    fromRunRef.current = completed;
+    setRun(null);
+  }, []);
+  const consumeFromRun = useCallback(() => {
+    const v = fromRunRef.current;
+    fromRunRef.current = false;
+    return v;
+  }, []);
 
   // Silent first load: fetch the sample list and show the first scene in the workspace.
   useEffect(() => {
@@ -170,8 +181,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
       startUpload,
       retry,
       finishRun,
+      consumeFromRun,
     }),
-    [run, result, imageName, recentItems, samples, initializing, startSample, startUpload, retry, finishRun],
+    [run, result, imageName, recentItems, samples, initializing, startSample, startUpload, retry, finishRun, consumeFromRun],
   );
 
   return <RunContext.Provider value={value}>{children}</RunContext.Provider>;

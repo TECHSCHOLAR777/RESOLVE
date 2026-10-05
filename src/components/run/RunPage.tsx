@@ -7,22 +7,10 @@ import { useRun, type RunState } from './RunContext';
 import { ThemeToggle } from '../../theme';
 import { useRunTimeline } from './useRunTimeline';
 import { STAGE_COUNT } from './timeline';
+import { STAGE_TITLES } from './stageTimings';
 import LiveTile from './LiveTile';
 import StageList from './StageList';
 import Telemetry from './Telemetry';
-
-const STAGE_TITLES = [
-  'Sentinel-2 ingest',
-  'Reflectance normalisation',
-  'AlphaEarth context',
-  'Sensor-matched patching',
-  'AlphaEarth change gate',
-  'Wavelet texture branch',
-  'Mamba backbone',
-  'Measurement lock',
-  'Trust layer',
-  'Products',
-];
 
 const RETURN_DELAY_MS = 1100;
 
@@ -73,7 +61,7 @@ function RunView({ run }: { run: RunState }) {
 
   const goBack = () => {
     navigate('/', { replace: true });
-    finishRun();
+    finishRun(!!result);
   };
 
   useEffect(() => {
