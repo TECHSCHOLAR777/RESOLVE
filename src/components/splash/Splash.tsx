@@ -30,7 +30,7 @@ export default function Splash({visible}: {visible: boolean}) {
           key="splash"
           role="status"
           aria-label="Loading RESOLVE"
-          className="fixed inset-0 z-[9999] overflow-hidden flex flex-col items-center justify-center"
+          className="fixed inset-0 z-[9999] overflow-hidden flex flex-col items-center justify-start pt-[14vh] sm:pt-[12vh]"
           style={{background: 'radial-gradient(ellipse at 50% 40%, #0b1730 0%, #050a17 55%, #02050d 100%)'}}
           initial={{opacity: 1}}
           exit={{opacity: 0, scale: reduced ? 1 : 1.04}}
@@ -42,17 +42,14 @@ export default function Splash({visible}: {visible: boolean}) {
             ))}
           </svg>
 
-          <div
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 aspect-square w-[150vw] sm:w-[min(105vmin,1000px)]"
-            style={{opacity: 0.9}}
-          >
+          <div className="absolute inset-0">
             <SplashGlobe reducedMotion={reduced} />
           </div>
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
               background:
-                'radial-gradient(ellipse 38% 34% at 50% 50%, rgba(3,7,16,0.6) 0%, rgba(3,7,16,0.3) 55%, transparent 100%)',
+                'linear-gradient(to bottom, rgba(2,5,13,0.78) 0%, rgba(2,5,13,0.45) 32%, rgba(2,5,13,0) 55%), radial-gradient(ellipse 120% 70% at 50% 120%, transparent 55%, rgba(2,5,13,0.55) 100%)',
             }}
           />
 
@@ -62,12 +59,6 @@ export default function Splash({visible}: {visible: boolean}) {
             animate={{opacity: 1, y: 0}}
             transition={{duration: 0.7, ease: 'easeOut'}}
           >
-            <img
-              src="/assets/logo_earth.png"
-              alt=""
-              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover mb-5 ring-1 ring-sky-400/30 shadow-[0_0_40px_rgba(56,130,246,0.35)]"
-              draggable={false}
-            />
             <h1 className="font-display font-bold text-4xl sm:text-6xl tracking-[0.28em] pl-[0.28em] text-white">
               RESOLVE
             </h1>
