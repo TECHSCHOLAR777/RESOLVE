@@ -3,8 +3,10 @@ title: RESOLVE backend
 emoji: 🛰️
 colorFrom: blue
 colorTo: green
-sdk: docker
-app_port: 7860
+sdk: gradio
+sdk_version: 6.29.1
+python_version: "3.11"
+app_file: space.py
 pinned: false
 ---
 
@@ -42,11 +44,16 @@ Large inputs are tiled in 128 px tiles with 32 px overlap (the model is fixed to
 
 Weights: Hugging Face repo `tacofoundation/sen2sr`, licence CC0-1.0 (public domain dedication), so free non-commercial and commercial use is allowed. The `sen2sr` package is MIT. Sentinel-2 data is free under the Copernicus licence; please credit Copernicus Sentinel data.
 
-## Deploy to a Hugging Face Space (free CPU)
+## Deploy to a Hugging Face Space (free CPU, Gradio SDK)
 
-1. Create a Space with SDK "Docker".
-2. Upload the contents of `backend/` as the Space repo root. This README already carries the Space front matter (`sdk: docker`, `app_port: 7860`). Easiest is the CLI, which handles the binary sample tiles: `hf upload <user>/<space> . . --repo-type space --exclude ".venv/*" "models/*" "__pycache__/*" ".pytest_cache/*"`.
-3. The build installs requirements and downloads the weights. The API is then at `https://<user>-<space>.hf.space/api/health`.
-4. Set `VITE_API_URL` on Vercel to that URL. CORS is open to all origins.
+Docker Spaces are paid, so the backend runs on the free Gradio SDK. `space.py` loads the model and serves the same FastAPI app on port 7860, with a one-line Gradio page at `/`.
+
+1. Create a Space with SDK "Gradio", template "Blank", free CPU hardware.
+2. From `backend/`, upload this folder as the Space repo root. This README already carries the Space front matter (`sdk: gradio`, `app_file: space.py`, Python 3.11). The CLI handles the binary sample tiles:
+   `hf upload <user>/<space> . . --repo-type space --exclude ".venv/*" "models/*" "__pycache__/*" ".pytest_cache/*" "Dockerfile"`
+3. The Space installs `requirements.txt` and downloads the weights on first start. The API is then at `https://<user>-<space>.hf.space/api/health`.
+4. Set `VITE_API_URL` on Vercel to `https://<user>-<space>.hf.space` and redeploy. CORS is open to all origins.
+
+`Dockerfile` is kept for paid Docker Spaces or other hosts and is not needed for the Gradio Space.
 
 Results are stored in the system temp folder (last 50 kept) and are lost on restart.
