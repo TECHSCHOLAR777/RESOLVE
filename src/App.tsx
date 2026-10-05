@@ -54,6 +54,20 @@ export default function App() {
   const inputSrc = result ? absUrl(result.input.png) : undefined;
   const outputSrc = result ? absUrl(result.output.png) : undefined;
 
+  // Tile shape drives the layout: clearly portrait tiles go side by side, everything else stacks.
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const dims = result ? { w: result.input.width, h: result.input.height } : naturalSize;
+  const aspect = dims && dims.w > 0 && dims.h > 0 ? dims.w / dims.h : 1;
+  const isPortrait = aspect < 0.8;
+  const panelStyle: React.CSSProperties = {
+    aspectRatio: String(aspect),
+    width: `min(100%, calc(${isPortrait ? 70 : 65}vh * ${aspect}))`,
+  };
+  const handleNaturalSize = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+    if (w > 0 && h > 0) setNaturalSize({ w, h });
+  };
+
   // Run one backend job; only the latest request may update the UI.
   const runJob = async (label: string, job: () => Promise<SuperresResult>) => {
     const seq = ++requestSeq.current;
@@ -564,146 +578,146 @@ export default function App() {
               </div>
 
               {/* Imagery Display Viewport */}
-              <div className={`relative w-full rounded-lg overflow-hidden bg-[#10141F] min-h-[480px] lg:min-h-[520px] flex items-center justify-center select-none ${isLoading ? 'animate-pulse' : ''}`}>
+              <div className="relative w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-200 p-2 select-none">
                 {viewMode === 'side-by-side' ? (
-                  /* Side-by-Side Dual Viewports */
-                  <div className="w-full h-full grid grid-cols-2 gap-2 p-2">
-                    {/* Left: Original Input (10m GSD) */}
-                    <div className="relative rounded overflow-hidden bg-[#0D111A] flex flex-col justify-between p-3 border border-slate-800/80">
-                      {/* Top Badge */}
-                      <div className="z-10 self-start">
-                        <div className="bg-white/95 text-slate-900 text-xs font-semibold px-2.5 py-1 rounded-md shadow-xs flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+                  <div
+                    className={`grid gap-2 ${isPortrait ? 'grid-cols-2' : 'grid-cols-1'} ${
+                      isLoading && result ? 'opacity-40' : ''
+                    } transition-opacity`}
+                  >
+                    {/* Input panel (Original Input, 10m GSD) */}
+                    <div className="flex justify-center">
+                      <div
+                        className="relative rounded-lg overflow-hidden bg-[#0D111A] border border-slate-300 shadow-sm"
+                        style={panelStyle}
+                      >
+                        {inputSrc && (
+                          <img
+                            src={inputSrc}
+                            alt="Original Satellite Input"
+                            onLoad={handleNaturalSize}
+                            className="absolute inset-0 w-full h-full object-contain pointer-events-none transition-transform duration-200"
+                            style={{ transform: `scale(${zoomLevel})`, imageRendering: 'pixelated' }}
+                          />
+                        )}
+                        <div className="absolute top-2 left-2 max-w-[calc(100%-1rem)] z-10 bg-white/90 text-slate-900 text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-xs backdrop-blur-sm flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
                           <span>Original Input (10m GSD)</span>
                         </div>
-                      </div>
-
-                      {/* Center Image: Simulated native 10m resolution (blur/pixelate) */}
-                      <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-                        <img
-                          src={inputSrc}
-                          alt="Original Satellite Input"
-                          className="w-full h-full object-cover pointer-events-none transition-transform duration-200"
-                          style={{
-                            transform: `scale(${zoomLevel})`,
-                            imageRendering: 'pixelated',
-                          }}
-                        />
-                      </div>
-
-                      {/* Bottom Badge */}
-                      <div className="z-10 self-start">
-                        <div className="bg-black/80 text-white font-mono text-[10px] px-2 py-0.5 rounded backdrop-blur-xs">
+                        <div className="absolute bottom-2 left-2 z-10 bg-black/60 text-white font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
                           Sentinel-2 L2A
                         </div>
                       </div>
                     </div>
 
-                    {/* Right: Enhanced Output (2.5m resolve) */}
-                    <div className="relative rounded overflow-hidden bg-[#0D111A] flex flex-col justify-between p-3 border border-slate-800/80">
-                      {/* Top Badge */}
-                      <div className="z-10 self-start">
-                        <div className="bg-[#2563EB] text-white text-xs font-semibold px-2.5 py-1 rounded-md shadow-xs flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 stroke-[2.2]" />
+                    {/* Output panel (Enhanced Output, 2.5m resolve) */}
+                    <div className="flex justify-center">
+                      <div
+                        className="relative rounded-lg overflow-hidden bg-[#0D111A] border border-[#2563EB]/40 shadow-sm"
+                        style={panelStyle}
+                      >
+                        {outputSrc && (
+                          <img
+                            src={outputSrc}
+                            alt="Enhanced Satellite Output"
+                            className="absolute inset-0 w-full h-full object-contain pointer-events-none transition-transform duration-200"
+                            style={{ transform: `scale(${zoomLevel})` }}
+                          />
+                        )}
+                        <div className="absolute top-2 left-2 max-w-[calc(100%-1rem)] z-10 bg-[#2563EB]/95 text-white text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-xs backdrop-blur-sm flex items-center gap-1.5">
+                          <Sparkles className="w-3 h-3 stroke-[2.2]" />
                           <span>Enhanced Output (2.5m resolve)</span>
                         </div>
-                      </div>
-
-                      {/* Center Image: Super-resolved crisp detail */}
-                      <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-                        <img
-                          src={outputSrc}
-                          alt="Enhanced Satellite Output"
-                          className="w-full h-full object-cover pointer-events-none transition-transform duration-200"
-                          style={{
-                            transform: `scale(${zoomLevel})`,
-                          }}
-                        />
-                      </div>
-
-                      {/* Bottom Badges */}
-                      <div className="z-10 flex items-center justify-between w-full">
-                        <div className="bg-black/80 text-white font-mono text-[10px] px-2 py-0.5 rounded backdrop-blur-xs">
-                          4-Band Multispectral
-                        </div>
-                        <div className="bg-black/80 text-[#C7D2FE] font-mono text-[9px] px-2 py-0.5 rounded backdrop-blur-xs">
-                          Resolution: 2.5m/pixel
+                        <div className="absolute bottom-2 left-2 right-2 z-10 flex flex-wrap items-end justify-between gap-1 pointer-events-none">
+                          <div className="bg-black/60 text-white font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
+                            4-Band Multispectral
+                          </div>
+                          <div className="bg-black/60 text-[#C7D2FE] font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
+                            Resolution: 2.5m/pixel
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
                 ) : (
                   /* Split Slider Mode */
-                  <div
-                    onMouseDown={() => setIsSplitDragging(true)}
-                    onMouseUp={() => setIsSplitDragging(false)}
-                    onMouseMove={handleSplitMouseMove}
-                    className="relative w-full h-full overflow-hidden cursor-ew-resize min-h-[480px] lg:min-h-[520px]"
-                  >
-                    {/* Background: Enhanced Image */}
-                    <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
-                      <img
-                        src={outputSrc}
-                        alt="Enhanced Satellite View"
-                        className="w-full h-full object-cover pointer-events-none"
-                        style={{
-                          transform: `scale(${zoomLevel})`,
-                        }}
-                      />
-                    </div>
-
-                    {/* Top Right Enhanced Badge */}
-                    <div className="absolute top-3 right-3 z-10">
-                      <div className="bg-[#2563EB] text-white text-xs font-semibold px-2.5 py-1 rounded-md shadow-xs flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>Enhanced (2.5m)</span>
-                      </div>
-                    </div>
-
-                    {/* Foreground Clipped: Original Image */}
+                  <div className={`flex justify-center ${isLoading && result ? 'opacity-40' : ''} transition-opacity`}>
                     <div
-                      className="absolute inset-0 overflow-hidden"
-                      style={{ clipPath: `inset(0 ${100 - splitPos}% 0 0)` }}
+                      onMouseDown={() => setIsSplitDragging(true)}
+                      onMouseUp={() => setIsSplitDragging(false)}
+                      onMouseLeave={() => setIsSplitDragging(false)}
+                      onMouseMove={handleSplitMouseMove}
+                      className="relative rounded-lg overflow-hidden bg-[#0D111A] border border-slate-300 shadow-sm cursor-ew-resize"
+                      style={panelStyle}
                     >
-                      <img
-                        src={inputSrc}
-                        alt="Original Satellite View"
-                        className="w-full h-full object-cover pointer-events-none"
-                        style={{
-                          transform: `scale(${zoomLevel})`,
-                          imageRendering: 'pixelated',
-                        }}
-                      />
+                      {/* Background: Enhanced Image */}
+                      {outputSrc && (
+                        <img
+                          src={outputSrc}
+                          alt="Enhanced Satellite View"
+                          onLoad={handleNaturalSize}
+                          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                          style={{ transform: `scale(${zoomLevel})` }}
+                        />
+                      )}
 
-                      {/* Top Left Original Badge */}
-                      <div className="absolute top-3 left-3 z-10">
-                        <div className="bg-white/95 text-slate-900 text-xs font-semibold px-2.5 py-1 rounded-md shadow-xs flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-[#F59E0B]" />
+                      {/* Foreground Clipped: Original Image */}
+                      <div
+                        className="absolute inset-0 overflow-hidden"
+                        style={{ clipPath: `inset(0 ${100 - splitPos}% 0 0)` }}
+                      >
+                        {inputSrc && (
+                          <img
+                            src={inputSrc}
+                            alt="Original Satellite View"
+                            className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+                            style={{ transform: `scale(${zoomLevel})`, imageRendering: 'pixelated' }}
+                          />
+                        )}
+                      </div>
+
+                      {/* Top row: Original badge left, Enhanced badge right (wraps when narrow) */}
+                      <div className="absolute top-2 left-2 right-2 z-10 flex flex-wrap items-start justify-between gap-1 pointer-events-none">
+                        <div className="bg-white/90 text-slate-900 text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-xs backdrop-blur-sm flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
                           <span>Original Input (10m)</span>
+                        </div>
+                        <div className="ml-auto bg-[#2563EB]/95 text-white text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-xs backdrop-blur-sm flex items-center gap-1.5">
+                          <Sparkles className="w-3 h-3" />
+                          <span>Enhanced (2.5m)</span>
+                        </div>
+                      </div>
+
+                      {/* Draggable Divider Handle */}
+                      <div
+                        className="absolute top-0 bottom-0 w-0.5 bg-white shadow-xl z-20 pointer-events-none"
+                        style={{ left: `${splitPos}%` }}
+                      >
+                        <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-white text-slate-700 shadow-lg flex items-center justify-center border border-slate-200">
+                          <SplitSquareHorizontal className="w-4 h-4 text-[#2563EB]" />
+                        </div>
+                      </div>
+
+                      {/* Bottom info badges */}
+                      <div className="absolute bottom-2 left-2 right-2 z-10 flex flex-wrap items-end justify-between gap-1 pointer-events-none">
+                        <div className="bg-black/60 text-white font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
+                          Sentinel-2 L2A
+                        </div>
+                        <div className="ml-auto bg-black/60 text-white font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
+                          4-Band Multispectral (2.5m)
                         </div>
                       </div>
                     </div>
+                  </div>
+                )}
 
-                    {/* Draggable Divider Handle */}
-                    <div
-                      className="absolute top-0 bottom-0 w-0.5 bg-white shadow-xl z-20 pointer-events-none"
-                      style={{ left: `${splitPos}%` }}
-                    >
-                      <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-white text-slate-700 shadow-lg flex items-center justify-center border border-slate-200">
-                        <SplitSquareHorizontal className="w-4 h-4 text-[#2563EB]" />
-                      </div>
-                    </div>
-
-                    {/* Bottom Info Badges */}
-                    <div className="absolute bottom-3 left-3 z-10">
-                      <div className="bg-black/80 text-white font-mono text-[10px] px-2 py-0.5 rounded backdrop-blur-xs">
-                        Sentinel-2 L2A
-                      </div>
-                    </div>
-                    <div className="absolute bottom-3 right-3 z-10">
-                      <div className="bg-black/80 text-white font-mono text-[10px] px-2 py-0.5 rounded backdrop-blur-xs">
-                        4-Band Multispectral (2.5m)
-                      </div>
+                {/* Processing overlay */}
+                {isLoading && (
+                  <div className="absolute inset-0 z-30 bg-slate-900/55 backdrop-blur-[2px] text-center px-4">
+                    <div className="sticky top-[38vh] flex flex-col items-center gap-3 py-8">
+                      <div className="w-11 h-11 rounded-full border-4 border-white/30 border-t-white animate-spin" />
+                      <div className="text-sm font-semibold text-white">🛰️ Processing satellite tile…</div>
+                      <div className="text-xs text-blue-100">🔍 Running SEN2SR-Lite super-resolution ✨</div>
                     </div>
                   </div>
                 )}
