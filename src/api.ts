@@ -1,5 +1,9 @@
+// Hosted backend (Hugging Face Space). VITE_API_URL overrides it; dev builds default to a local backend.
+const HOSTED_API_URL = 'https://raone777-resolve-backend.hf.space';
+
 export const API_URL: string = (
-  (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:8000'
+  (import.meta.env.VITE_API_URL as string | undefined) ||
+  (import.meta.env.PROD ? HOSTED_API_URL : 'http://localhost:8000')
 ).replace(/\/+$/, '');
 
 export interface Health {
