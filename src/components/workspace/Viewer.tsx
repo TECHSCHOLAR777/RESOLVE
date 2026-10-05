@@ -12,6 +12,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { absUrl, type SuperresResult } from '../../api';
+import { useSettings } from '../../lib/settings';
 import LayerSwitcher from './LayerSwitcher';
 import { useIsPhone } from './useBreakpoint';
 
@@ -21,21 +22,24 @@ interface ViewerProps {
   initializing: boolean;
   /** When set, a header button opens the inspector (used where it is not shown inline). */
   onOpenInspector?: () => void;
+  /** Reports the layer currently shown ('rgb' when none is blended over the output). */
+  onLayerChange?: (id: string) => void;
 }
 
 const FALLBACK = '/assets/punjab.jpg';
 const iconBtn =
   'flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line text-muted transition-colors hover:bg-sunken hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 sm:h-7 sm:w-7';
 
-export default function Viewer({ result, imageName, initializing, onOpenInspector }: ViewerProps) {
+export default function Viewer({ result, imageName, initializing, onOpenInspector, onLayerChange }: ViewerProps) {
   const phone = useIsPhone();
+  const { settings } = useSettings();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [viewMode, setViewMode] = useState<'split' | 'side-by-side'>('split');
+  const [viewMode, setViewMode] = useState<'split' | 'side-by-side'>(settings.viewMode === 'split' ? 'split' : 'side-by-side');
   const [zoom, setZoom] = useState(1);
   const [splitPos, setSplitPos] = useState(50);
   const [dragging, setDragging] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [layerId, setLayerId] = useState('rgb');
+  const [layerId, setLayerId] = useState(settings.defaultLayer);
   const [opacity, setOpacity] = useState(1);
 
   const inputSrc = result ? absUrl(result.input.png) : FALLBACK;
@@ -45,6 +49,9 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
   const layers = result?.layers && result.layers.length > 0 ? result.layers : null;
   const effective = layers ? (layers.find((l) => l.id === layerId) ?? layers.find((l) => l.id === 'rgb') ?? layers[0]) : null;
   const activeLayer = effective && effective.id !== 'rgb' ? effective : null;
+  const reportedId = activeLayer ? activeLayer.id : 'rgb';
+  useEffect(() => onLayerChange?.(reportedId), [onLayerChange, reportedId]);
+  const labels = settings.showCornerLabels;
 
   // Tile shape drives the layout: clearly portrait tiles go side by side, everything else stacks.
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
@@ -189,6 +196,8 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
               />
             </div>
 
+            {labels && (
+              <>
             <div className="pointer-events-none absolute left-2 top-2 z-10 sm:left-3 sm:top-3">
               <div className="flex items-center gap-1.5 rounded-md border border-white/10 bg-black/65 px-2 py-1 text-[10px] font-medium text-white shadow-sm backdrop-blur-md sm:px-2.5 sm:text-[11px]">
                 <span className="h-2 w-2 rounded-full bg-amber-400" />
@@ -210,6 +219,8 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
             <div className="pointer-events-none absolute bottom-3 right-3 z-10 hidden sm:block">
               <span className="rounded bg-black/70 px-2 py-0.5 font-mono text-[10px] text-slate-200 shadow-sm backdrop-blur-md">4-Band Multispectral</span>
             </div>
+              </>
+            )}
 
             <div className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 bg-white shadow-[0_0_8px_rgba(0,0,0,0.5)]" style={{ left: `${splitPos}%` }}>
               <div className="absolute top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold tracking-tighter text-slate-500 shadow-md">
@@ -221,13 +232,15 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
           <div className={`flex w-full justify-center gap-2 ${sideBySide ? 'flex-row' : 'flex-col items-center'}`}>
             <div className={panelBase} style={panelStyle(sideBySide ? rowWidth : colWidth)}>
               <img src={inputSrc} alt="Original" draggable={false} className="h-full w-full object-cover" style={pixelated} />
-              <div className="absolute left-2 top-2 rounded bg-black/65 px-2 py-0.5 text-[10px] text-white">Original (10 m)</div>
+              {labels && <div className="absolute left-2 top-2 rounded bg-black/65 px-2 py-0.5 text-[10px] text-white">Original (10 m)</div>}
             </div>
             <div className={panelBase} style={panelStyle(sideBySide ? rowWidth : colWidth)}>
               {outputImages}
-              <div className="absolute left-2 top-2 max-w-[90%] truncate rounded bg-[#2563EB]/90 px-2 py-0.5 text-[10px] text-white">
-                {activeLayer ? `${activeLayer.name} (2.5 m)` : 'Enhanced (2.5 m)'}
-              </div>
+              {labels && (
+                <div className="absolute left-2 top-2 max-w-[90%] truncate rounded bg-[#2563EB]/90 px-2 py-0.5 text-[10px] text-white">
+                  {activeLayer ? `${activeLayer.name} (2.5 m)` : 'Enhanced (2.5 m)'}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -247,7 +260,7 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
       <div className="flex items-center justify-between gap-3">
         <div className="hidden items-center gap-1.5 text-xs text-faint sm:flex">
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-          <span>Real-time High Fidelity Preview</span>
+          <span>Input 10 m, output 2.5 m</span>
         </div>
         <div className="inline-flex rounded-lg border border-line bg-sunken p-0.5 max-sm:w-full">
           {(
@@ -259,12 +272,13 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
             <button
               key={mode}
               type="button"
+              aria-pressed={viewMode === mode}
               onClick={() => setViewMode(mode)}
               className={`flex cursor-pointer items-center justify-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-all max-sm:flex-1 sm:py-1 ${
                 viewMode === mode ? 'bg-raised text-accent-text shadow-2xs dark:shadow-none' : 'text-muted hover:text-ink'
               }`}
             >
-              <Icon className="h-3 w-3" />
+              <Icon className="h-3 w-3" aria-hidden />
               <span>{label}</span>
             </button>
           ))}

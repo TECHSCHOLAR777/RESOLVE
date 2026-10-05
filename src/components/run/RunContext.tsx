@@ -1,22 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { absUrl, listSamples, superresSample, superresUpload, type Sample, type SuperresResult } from '../../api';
-
-export interface RecentItem {
-  id: string;
-  title: string;
-  timeAgo: string;
-  badge: string;
-  imgUrl: string;
-  sampleId?: string;
-}
-
-export const DEFAULT_RECENT_ITEMS: RecentItem[] = [
-  { id: 'punjab-farmlands', title: 'Punjab Farmlands', timeAgo: '2 hours ago', badge: '4×', imgUrl: '/assets/punjab.jpg', sampleId: '01_punjab' },
-  { id: 'narmada-river', title: 'Narmada River & Surrou...', timeAgo: '5 hours ago', badge: '4×', imgUrl: '/assets/narmada.jpg', sampleId: '02_narmada' },
-  { id: 'forest-region', title: 'Forest Region', timeAgo: '1 day ago', badge: '4×', imgUrl: '/assets/forest.jpg', sampleId: '03_forest' },
-  { id: 'ahmedabad-urban', title: 'Ahmedabad Urban Area', timeAgo: '2 days ago', badge: '4×', imgUrl: '/assets/ahmedabad.jpg', sampleId: '04_ahmedabad' },
-];
+import { listSamples, superresSample, superresUpload, type Sample, type SuperresResult } from '../../api';
+import { addRun, type HistoryEntry, type RunMeta } from '../../lib/history';
 
 const DEFAULT_SCENE_NAME = 'Agricultural Farmland & Road Corridor Scene';
 
@@ -37,7 +22,6 @@ interface RunContextValue {
   run: RunState | null;
   result: SuperresResult | null;
   imageName: string;
-  recentItems: RecentItem[];
   samples: Sample[];
   /** True while the silent first scene load or an active run is in flight. */
   isBusy: boolean;
@@ -46,6 +30,8 @@ interface RunContextValue {
   startUpload: (file: File) => void;
   retry: () => void;
   finishRun: (completed?: boolean) => void;
+  /** Open a stored run: current result, a sample re-run, or an upload rebuilt from its URLs. Resolves false when the images are gone. */
+  openEntry: (entry: HistoryEntry) => Promise<boolean>;
   /** True once after a finished run returned to the workspace, so it can open on the viewer. */
   consumeFromRun: () => boolean;
 }
@@ -64,19 +50,16 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [result, setResult] = useState<SuperresResult | null>(null);
   const [imageName, setImageName] = useState(DEFAULT_SCENE_NAME);
   const [samples, setSamples] = useState<Sample[]>([]);
-  const [recentItems, setRecentItems] = useState<RecentItem[]>(DEFAULT_RECENT_ITEMS);
   const [initializing, setInitializing] = useState(true);
   const seqRef = useRef(0);
   const runRef = useRef<RunState | null>(null);
   runRef.current = run;
 
-  const commit = useCallback((res: SuperresResult, label: string) => {
+  /** Show a result in the workspace. Only real runs (with meta) are recorded in history. */
+  const commit = useCallback((res: SuperresResult, label: string, meta?: RunMeta) => {
     setResult(res);
     setImageName(label);
-    setRecentItems((prev) => [
-      { id: res.id, title: label, timeAgo: 'Just now', badge: '4×', imgUrl: absUrl(res.output.png) },
-      ...prev.filter((item) => item.title !== label),
-    ].slice(0, 8));
+    if (meta) addRun(res, meta);
   }, []);
 
   // The request lives here, above the router outlet, so changing pages never cancels it.
@@ -89,7 +72,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       job().then(
         (res) => {
           if (seq !== seqRef.current) return;
-          commit(res, label);
+          commit(res, label, { name: label, kind: extra.sampleId ? 'sample' : 'upload', sampleId: extra.sampleId });
           setRun((r) => (r && r.seq === seq ? { ...r, status: 'done', result: res } : r));
         },
         (err: unknown) => {
@@ -134,6 +117,44 @@ export function RunProvider({ children }: { children: ReactNode }) {
     return v;
   }, []);
 
+  const resultId = result?.id;
+  const openEntry = useCallback(
+    async (entry: HistoryEntry): Promise<boolean> => {
+      if (entry.id === resultId) {
+        fromRunRef.current = true;
+        navigate('/');
+        return true;
+      }
+      if (entry.kind === 'sample' && entry.sampleId) {
+        startSample({ id: entry.sampleId, name: samples.find((s) => s.id === entry.sampleId)?.name ?? entry.name });
+        return true;
+      }
+      // Uploads cannot be re-run without the file, so show the stored result if the server still has it.
+      const size = await new Promise<{ w: number; h: number } | null>((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => resolve(null);
+        img.src = entry.outputUrl;
+      });
+      if (!size) return false;
+      const rebuilt: SuperresResult = {
+        id: entry.id,
+        input: { width: size.w, height: size.h, png: entry.thumbUrl },
+        output: { width: size.w, height: size.h, png: entry.outputUrl },
+        runtime_ms: entry.runtime_ms,
+        model: 'RESOLVE',
+        crs: null,
+        notes: [],
+        scene: null,
+      };
+      commit(rebuilt, entry.name);
+      fromRunRef.current = true;
+      navigate('/');
+      return true;
+    },
+    [resultId, startSample, samples, commit, navigate],
+  );
+
   // Silent first load: fetch the sample list and show the first scene in the workspace.
   useEffect(() => {
     let cancelled = false;
@@ -144,15 +165,6 @@ export function RunProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setSamples(list);
         if (list.length === 0) return;
-        const initial: RecentItem[] = list.map((s, idx) => ({
-          id: s.id,
-          title: s.name || `Scene ${s.id}`,
-          timeAgo: `${(idx + 1) * 2} hours ago`,
-          badge: '4×',
-          imgUrl: absUrl(`/api/samples/${encodeURIComponent(s.id)}/input.png`),
-          sampleId: s.id,
-        }));
-        setRecentItems(initial.length >= 4 ? initial : [...initial, ...DEFAULT_RECENT_ITEMS.slice(initial.length)]);
         const first = list[0];
         const res = await superresSample(first.id);
         if (cancelled || seq !== seqRef.current) return;
@@ -173,7 +185,6 @@ export function RunProvider({ children }: { children: ReactNode }) {
       run,
       result,
       imageName,
-      recentItems,
       samples,
       isBusy: initializing || run?.status === 'pending',
       initializing,
@@ -182,8 +193,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
       retry,
       finishRun,
       consumeFromRun,
+      openEntry,
     }),
-    [run, result, imageName, recentItems, samples, initializing, startSample, startUpload, retry, finishRun, consumeFromRun],
+    [run, result, imageName, samples, initializing, startSample, startUpload, retry, finishRun, consumeFromRun, openEntry],
   );
 
   return <RunContext.Provider value={value}>{children}</RunContext.Provider>;

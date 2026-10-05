@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 
 const KEY = 'resolve:theme';
+const THEME_EVENT = 'resolve:theme-changed';
 type Theme = 'light' | 'dark';
+
+const readClass = (): Theme => (document.documentElement.classList.contains('dark') ? 'dark' : 'light');
 
 const systemTheme = (): Theme =>
   typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -23,12 +26,19 @@ function apply(theme: Theme, animate: boolean) {
     window.setTimeout(() => root.classList.remove('theme-switching'), 220);
   }
   root.classList.toggle('dark', theme === 'dark');
+  window.dispatchEvent(new Event(THEME_EVENT));
 }
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>(() =>
-    document.documentElement.classList.contains('dark') ? 'dark' : 'light',
-  );
+  const [theme, setTheme] = useState<Theme>(readClass);
+
+  // Stay in sync with other writers (Settings page, other toggles).
+  useEffect(() => {
+    const sync = () => setTheme(readClass());
+    window.addEventListener(THEME_EVENT, sync);
+    sync();
+    return () => window.removeEventListener(THEME_EVENT, sync);
+  }, []);
 
   // Follow the OS while the user has not chosen explicitly.
   useEffect(() => {
@@ -37,7 +47,6 @@ export function useTheme() {
       if (storedTheme()) return;
       const next = systemTheme();
       apply(next, true);
-      setTheme(next);
     };
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
@@ -45,13 +54,12 @@ export function useTheme() {
 
   const toggle = useCallback(() => {
     const next: Theme = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
-    apply(next, true);
-    setTheme(next);
     try {
       localStorage.setItem(KEY, next);
     } catch {
       /* storage unavailable: choice lasts for this page view only */
     }
+    apply(next, true);
   }, []);
 
   return { theme, toggle };

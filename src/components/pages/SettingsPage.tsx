@@ -91,6 +91,11 @@ export default function SettingsPage() {
   const [confirm, setConfirm] = useState<null | 'history' | 'reset'>(null);
 
   useEffect(() => setLayerDraft(settings.defaultLayer), [settings.defaultLayer]);
+  useEffect(() => {
+    const sync = () => setTheme(getThemePreference());
+    window.addEventListener('resolve:theme-changed', sync);
+    return () => window.removeEventListener('resolve:theme-changed', sync);
+  }, []);
 
   const chooseTheme = (t: ThemePreference) => {
     setThemePreference(t);

@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, RotateCcw } from 'lucide-react';
 import { absUrl, sampleThumbUrl } from '../../api';
 import { useRun, type RunState } from './RunContext';
+import { useSettings } from '../../lib/settings';
 import { ThemeToggle } from '../../theme';
 import { useRunTimeline } from './useRunTimeline';
 import { STAGE_COUNT } from './timeline';
@@ -23,6 +24,7 @@ export default function RunPage() {
 function RunView({ run }: { run: RunState }) {
   const navigate = useNavigate();
   const { finishRun, retry } = useRun();
+  const { settings } = useSettings();
   const result = run.result;
 
   // Warm the cache with both previews; the reveal only starts once they can paint instantly.
@@ -65,12 +67,12 @@ function RunView({ run }: { run: RunState }) {
   };
 
   useEffect(() => {
-    if (!tl.complete) return;
+    if (!tl.complete || !settings.autoReturnToWorkspace) return;
     const t = window.setTimeout(goBack, RETURN_DELAY_MS);
     return () => window.clearTimeout(t);
     // goBack only closes over stable callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tl.complete]);
+  }, [tl.complete, settings.autoReturnToWorkspace]);
 
   const pct = Math.floor(tl.overall * 100);
   const scene = result?.scene;

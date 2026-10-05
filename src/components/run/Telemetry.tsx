@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getSettings } from '../../lib/settings';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, Loader2, Terminal } from 'lucide-react';
 import type { LogLine } from './useRunTimeline';
@@ -24,7 +25,7 @@ function Counter({ label, value }: { label: string; value: string }) {
 }
 
 export default function Telemetry({ patchesDone, patchTotal, stageTitle, stageIndex, stageTotal, elapsedMs, waiting, logs }: Props) {
-  const [open, setOpen] = useState(() => (typeof window === 'undefined' ? true : window.innerWidth >= 768));
+  const [open, setOpen] = useState(() => getSettings().telemetryExpanded);
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

@@ -108,7 +108,7 @@ export default function ReportPage({ result, name, onBack }: ReportPageProps) {
     ['Centre', scene ? `${fmtLat(scene.center.lat)}, ${fmtLon(scene.center.lon)}` : NA],
     ['CRS', scene?.crs ?? result.crs ?? NA],
     ['Input pixel size', scene ? `${scene.pixel_size_m} m` : NA],
-    ['Input size', `${result.input.width} × ${result.input.height} px`],
+    ['Input size', scene ? `${scene.width} × ${scene.height} px` : `${result.input.width} × ${result.input.height} px`],
   ];
 
   const metricRows: [string, string][] = [
