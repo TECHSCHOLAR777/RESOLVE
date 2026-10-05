@@ -1,8 +1,11 @@
+import io
+import re
 
 import numpy as np
 import pytest
 import rasterio
 from fastapi.testclient import TestClient
+from PIL import Image
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 
@@ -123,3 +126,47 @@ def test_unknown_sample_and_result():
     assert client.post("/api/samples/nope/superres").status_code == 404
     assert client.get("/api/results/" + "0" * 32 + "/output.tif").status_code == 404
     assert client.get("/api/results/../output.tif").status_code in (404, 422)
+
+
+@pytest.mark.parametrize("sample_id", SAMPLE_IDS)
+def test_sample_thumbnail(sample_id):
+    r = client.get(f"/api/samples/{sample_id}/input.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    img = Image.open(io.BytesIO(r.content))
+    assert img.format == "PNG" and img.size == (256, 256) and img.mode == "RGB"
+
+
+def test_thumbnail_unknown_sample():
+    assert client.get("/api/samples/nope/input.png").status_code == 404
+
+
+def check_scene_patches(body: dict, w: int, h: int):
+    sc = body["scene"]
+    west, south, east, north = sc["bounds"]
+    assert west < east and south < north
+    assert 5 < sc["center"]["lat"] < 38 and 65 < sc["center"]["lon"] < 100
+    assert west < sc["center"]["lon"] < east and south < sc["center"]["lat"] < north
+    assert sc["crs"].startswith("EPSG:") and sc["pixel_size_m"] == pytest.approx(10)
+    assert (sc["width"], sc["height"]) == (w, h)
+    p = body["patches"]
+    assert p["tile"] == 128 and p["overlap"] == 32
+    assert p["count"] == p["cols"] * p["rows"] >= 1
+
+
+@pytest.mark.parametrize("sample_id", SAMPLE_IDS)
+def test_sample_scene_and_patches(sample_id):
+    body = client.post(f"/api/samples/{sample_id}/superres").json()
+    check_scene_patches(body, 256, 256)
+    sc = body["scene"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", sc["date"]) and re.fullmatch(r"T\d{2}[A-Z]{3}", sc["tile_id"])
+    assert sc["satellite"].startswith("Sentinel-2")
+    assert body["patches"] == {"tile": 128, "overlap": 32, "cols": 3, "rows": 3, "count": 9}
+
+
+def test_scene_from_source_item_tag_and_single_pass():
+    item = "S2A_MSIL2A_20250101T054231_R005_T42QZG_20250101T085751"
+    data = tif_bytes(np.full((4, 64, 64), 0.2, "float32"), source_item=item)
+    body = client.post("/api/superres", files={"file": ("a.tif", data, "image/tiff")}).json()
+    sc = body["scene"]
+    assert (sc["date"], sc["satellite"], sc["tile_id"], sc["source_item"]) == ("2025-01-01", "Sentinel-2A", "T42QZG", item)
+    assert body["patches"]["cols"] == body["patches"]["rows"] == 1

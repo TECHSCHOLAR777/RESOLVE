@@ -39,6 +39,11 @@ Convention: float32 surface reflectance 0-1, band order B4 B3 B2 B8, 256x256 px 
 Integer values above 1 are treated as L2A DNs and divided by 10 000; 1000 is subtracted first only if a tag containing "baseline" in the file says 04.00 or later. Otherwise values are taken as 0-1 reflectance. Max 512x512 px (413 above), 4 bands required.
 Large inputs are tiled in 128 px tiles with 32 px overlap (the model is fixed to 128 px).
 
+## API additions
+
+- `GET /api/samples/{id}/input.png`: 256x256 RGB (B4,B3,B2) preview of a bundled sample, 2-98 percentile stretch, cached in memory; 404 if unknown.
+- Both superres responses also carry `scene` (`center`, `bounds` [w,s,e,n] WGS84, `crs`, `pixel_size_m`, `width`, `height`, `date`, `satellite`, `source_item`, `tile_id`; parsed from the GeoTIFF `source_item` tag, samples fall back to `samples.json`; geo fields are null without a CRS) and `patches` (`tile`, `overlap`, `cols`, `rows`, `count`: the real inference tiling).
+
 ## Licence
 
 Weights: Hugging Face repo `tacofoundation/sen2sr`, licence CC0-1.0 (public domain dedication), so free non-commercial and commercial use is allowed. The `sen2sr` package is MIT. Sentinel-2 data is free under the Copernicus licence; please credit Copernicus Sentinel data.

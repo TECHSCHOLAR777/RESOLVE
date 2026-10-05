@@ -23,7 +23,7 @@ def get_model():
     return _model
 
 
-def _padded_size(n: int) -> int:
+def padded_size(n: int) -> int:
     """Smallest size >= n + 2*MARGIN that 128-px tiles with stride 96 cover exactly."""
     n += 2 * MARGIN
     return TILE if n <= TILE else TILE + -(-(n - TILE) // STRIDE) * STRIDE
@@ -38,7 +38,7 @@ def super_resolve(refl: np.ndarray) -> np.ndarray:
     """
     model = get_model()
     _, h, w = refl.shape
-    ph, pw = _padded_size(h), _padded_size(w)
+    ph, pw = padded_size(h), padded_size(w)
     padded = np.pad(refl, ((0, 0), (MARGIN, ph - h - MARGIN), (MARGIN, pw - w - MARGIN)), mode="reflect")
     x = torch.from_numpy(padded)
     out = torch.zeros(4, ph * SCALE, pw * SCALE)

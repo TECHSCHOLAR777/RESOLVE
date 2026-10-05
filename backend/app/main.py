@@ -12,12 +12,13 @@ import numpy as np
 import rasterio
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image
 from rasterio.errors import RasterioIOError
 from rasterio.io import MemoryFile
+from rasterio.warp import transform_bounds
 
-from .model import MODEL_NAME, SCALE, get_model, super_resolve
+from .model import MODEL_NAME, SCALE, STRIDE, TILE, get_model, padded_size, super_resolve
 
 SAMPLES_DIR = Path(__file__).resolve().parents[1] / "samples"
 RESULTS_DIR = Path(tempfile.gettempdir()) / "resolve_results"
@@ -44,6 +45,13 @@ def health():
 def samples():
     keys = ("id", "name", "location", "date", "width", "height")
     return [{k: s[k] for k in keys} for s in load_samples()]
+
+
+def find_sample(sample_id: str) -> dict:
+    for s in load_samples():
+        if s["id"] == sample_id:
+            return s
+    raise HTTPException(404, "Unknown sample")
 
 
 def parse_band_order(text: str) -> list[int]:
@@ -81,7 +89,8 @@ def read_input(data: bytes, band_order: str):
             if src.width < MIN_SIDE or src.height < MIN_SIDE:
                 raise HTTPException(400, f"Input is too small; minimum is {MIN_SIDE}x{MIN_SIDE}px")
             arr = src.read().astype("float32")
-            meta = dict(crs=src.crs, transform=src.transform, baseline=processing_baseline(src))
+            meta = dict(crs=src.crs, transform=src.transform, baseline=processing_baseline(src),
+                        source_item=src.tags().get("source_item"))
     except RasterioIOError:
         raise HTTPException(400, "File is not a readable GeoTIFF")
 
@@ -116,7 +125,56 @@ def prune_results():
         shutil.rmtree(d, ignore_errors=True)
 
 
-def run_pipeline(data: bytes, band_order: str) -> dict:
+_thumb_cache: dict[str, bytes] = {}
+ITEM_RE = re.compile(r"^S2([ABC])_MSI\w+?_(\d{4})(\d{2})(\d{2})T\d{6}_R\d+_(T\w{5})_")
+
+
+def parse_source_item(item: str | None) -> dict:
+    m = ITEM_RE.match(item or "")
+    if not m:
+        return {"date": None, "satellite": None, "tile_id": None}
+    return {"date": f"{m[2]}-{m[3]}-{m[4]}", "satellite": f"Sentinel-2{m[1]}", "tile_id": m[5]}
+
+
+def build_scene(meta: dict, w: int, h: int, fallback: dict | None = None) -> dict:
+    fallback = fallback or {}
+    item = meta.get("source_item") or fallback.get("source_item")
+    info = parse_source_item(item)
+    info["date"] = info["date"] or fallback.get("date")
+    scene = {"center": None, "bounds": None, "crs": None, "pixel_size_m": None, "width": w, "height": h,
+             "date": info["date"], "satellite": info["satellite"], "source_item": item,
+             "tile_id": info["tile_id"]}
+    crs, t = meta["crs"], meta["transform"]
+    if crs is None:
+        return scene
+    scene["crs"] = crs.to_string()
+    try:
+        bounds = (t.c, t.f + t.e * h, t.c + t.a * w, t.f)
+        west, south, east, north = transform_bounds(crs, "EPSG:4326", *bounds)
+        scene["bounds"] = [round(v, 5) for v in (west, south, east, north)]
+        scene["center"] = {"lat": round((south + north) / 2, 5), "lon": round((west + east) / 2, 5)}
+        if crs.is_projected:
+            scene["pixel_size_m"] = round(abs(t.a) * (crs.linear_units_factor[1]), 3)
+    except Exception:
+        pass
+    return scene
+
+
+def build_patches(h: int, w: int) -> dict:
+    rows = (padded_size(h) - TILE) // STRIDE + 1
+    cols = (padded_size(w) - TILE) // STRIDE + 1
+    return {"tile": TILE, "overlap": TILE - STRIDE, "cols": cols, "rows": rows, "count": cols * rows}
+
+
+def sample_thumbnail(sample_id: str) -> bytes:
+    if sample_id not in _thumb_cache:
+        refl, _, _ = read_input((SAMPLES_DIR / f"{sample_id}.tif").read_bytes(), "B4,B3,B2,B8")
+        lo, hi = np.percentile(refl[:3], [2, 98])
+        _thumb_cache[sample_id] = to_png(refl[:3], lo, hi)
+    return _thumb_cache[sample_id]
+
+
+def run_pipeline(data: bytes, band_order: str, fallback: dict | None = None) -> dict:
     refl, meta, notes = read_input(data, band_order)
     get_model()  # load before timing
     t0 = time.perf_counter()
@@ -154,6 +212,8 @@ def run_pipeline(data: bytes, band_order: str) -> dict:
         "model": MODEL_NAME,
         "crs": meta["crs"].to_string() if meta["crs"] else None,
         "notes": notes,
+        "scene": build_scene(meta, w, h, fallback),
+        "patches": build_patches(h, w),
     }
 
 
@@ -164,9 +224,14 @@ def superres(file: UploadFile = File(...), band_order: str = Form("B4,B3,B2,B8")
 
 @app.post("/api/samples/{sample_id}/superres")
 def sample_superres(sample_id: str):
-    if sample_id not in {s["id"] for s in load_samples()}:
-        raise HTTPException(404, "Unknown sample")
-    return run_pipeline((SAMPLES_DIR / f"{sample_id}.tif").read_bytes(), "B4,B3,B2,B8")
+    sample = find_sample(sample_id)
+    return run_pipeline((SAMPLES_DIR / f"{sample_id}.tif").read_bytes(), "B4,B3,B2,B8", sample)
+
+
+@app.get("/api/samples/{sample_id}/input.png")
+def sample_input_png(sample_id: str):
+    find_sample(sample_id)
+    return Response(sample_thumbnail(sample_id), media_type="image/png")
 
 
 @app.get("/api/results/{result_id}/{name}")
