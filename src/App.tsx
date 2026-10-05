@@ -18,7 +18,6 @@ import {
   Sparkles,
   ArrowRight,
   ChevronDown,
-  Layers,
   MapPin,
   Clock,
   Check,
@@ -76,7 +75,6 @@ const DEFAULT_RECENT_ITEMS: RecentItem[] = [
 export default function App() {
   const [activeNav, setActiveNav] = useState<'enhance' | 'results' | 'help' | 'settings'>('enhance');
   const [viewMode, setViewMode] = useState<'split' | 'side-by-side'>('split');
-  const [resolutionMode, setResolutionMode] = useState<string>('2.5 m/pixel (4×)');
 
   // Imagery state
   const [imageName, setImageName] = useState<string>('Agricultural Farmland & Road Corridor Scene');
@@ -280,7 +278,7 @@ export default function App() {
             alt="Earth Horizon"
             className="absolute -bottom-10 -left-12 w-[340px] h-[340px] object-cover opacity-60 mix-blend-screen pointer-events-none"
             onError={(e) => {
-              (e.target as HTMLElement).src = '/assets/earth_sidebar.jpg';
+              (e.target as HTMLImageElement).src = '/assets/earth_sidebar.jpg';
             }}
           />
           {/* Ambient radial atmospheric glows */}
@@ -666,28 +664,7 @@ export default function App() {
             </div>
 
             {/* Bottom Control Bar */}
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-[#2563EB] shadow-2xs">
-                  <Layers className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-[11px] text-slate-400 font-medium">Output Resolution</div>
-                  <div className="relative inline-block mt-0.5">
-                    <select
-                      value={resolutionMode}
-                      onChange={(e) => setResolutionMode(e.target.value)}
-                      className="appearance-none bg-white border border-slate-200 text-xs font-semibold text-slate-800 py-1.5 pl-3 pr-8 rounded-lg shadow-2xs cursor-pointer focus:outline-none focus:border-[#2563EB]"
-                    >
-                      <option value="2.5 m/pixel (4×)">2.5 m/pixel (4×)</option>
-                      <option value="5.0 m/pixel (2×)">5.0 m/pixel (2×)</option>
-                      <option value="1.25 m/pixel (8× - Experimental)">1.25 m/pixel (8×)</option>
-                    </select>
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </div>
-                </div>
-              </div>
-
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-4">
               {/* Action Buttons */}
               <div className="flex items-center gap-3">
                 <button
