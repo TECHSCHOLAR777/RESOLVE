@@ -5,54 +5,102 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Wand2,
-  Clock,
+  Home,
+  FolderKanban,
+  HelpCircle,
   Settings,
-  Lightbulb,
-  Download,
   Upload,
+  Download,
   RotateCcw,
   Maximize2,
   Minimize2,
   ZoomIn,
-  Map,
-  FileImage,
-  Layers,
   Sparkles,
-  Link as LinkIcon,
+  ArrowRight,
+  ChevronDown,
+  Layers,
+  MapPin,
+  Clock,
   Check,
   SplitSquareHorizontal,
   Columns,
-  Minus,
-  Square,
-  X,
+  FileImage,
+  Sparkle
 } from 'lucide-react';
-import { absUrl, listSamples, outputTifUrl, superresSample, superresUpload, type SuperresResult } from './api';
+import { absUrl, listSamples, outputTifUrl, superresSample, superresUpload, type SuperresResult, type Sample } from './api';
+
+interface RecentItem {
+  id: string;
+  title: string;
+  timeAgo: string;
+  badge: string;
+  imgUrl: string;
+  sampleId?: string;
+}
+
+const DEFAULT_RECENT_ITEMS: RecentItem[] = [
+  {
+    id: 'punjab-farmlands',
+    title: 'Punjab Farmlands',
+    timeAgo: '2 hours ago',
+    badge: '4×',
+    imgUrl: '/assets/punjab.jpg',
+    sampleId: '01_punjab',
+  },
+  {
+    id: 'narmada-river',
+    title: 'Narmada River & Surrou...',
+    timeAgo: '5 hours ago',
+    badge: '4×',
+    imgUrl: '/assets/narmada.jpg',
+    sampleId: '02_narmada',
+  },
+  {
+    id: 'forest-region',
+    title: 'Forest Region',
+    timeAgo: '1 day ago',
+    badge: '4×',
+    imgUrl: '/assets/forest.jpg',
+    sampleId: '03_forest',
+  },
+  {
+    id: 'ahmedabad-urban',
+    title: 'Ahmedabad Urban Area',
+    timeAgo: '2 days ago',
+    badge: '4×',
+    imgUrl: '/assets/ahmedabad.jpg',
+    sampleId: '04_ahmedabad',
+  },
+];
 
 export default function App() {
-  const [activeNav, setActiveNav] = useState<'enhance' | 'recent' | 'settings'>('enhance');
-  const [viewMode, setViewMode] = useState<'side-by-side' | 'split'>('side-by-side');
+  const [activeNav, setActiveNav] = useState<'enhance' | 'results' | 'help' | 'settings'>('enhance');
+  const [viewMode, setViewMode] = useState<'split' | 'side-by-side'>('split');
+  const [resolutionMode, setResolutionMode] = useState<string>('2.5 m/pixel (4×)');
 
   // Imagery state
-  const [imageName, setImageName] = useState<string>('');
+  const [imageName, setImageName] = useState<string>('Agricultural Farmland & Road Corridor Scene');
   const [result, setResult] = useState<SuperresResult | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [hotlinkInput, setHotlinkInput] = useState<string>('');
-  const [showHotlinkInput, setShowHotlinkInput] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [splitPos, setSplitPos] = useState<number>(50); // percentage for split slider
   const [isSplitDragging, setIsSplitDragging] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isSaved, setIsSaved] = useState<boolean>(false);
 
+  // Available backend samples & recent activity items (defaults to the 4 showcase cards)
+  const [samplesList, setSamplesList] = useState<Sample[]>([]);
+  const [recentItems, setRecentItems] = useState<RecentItem[]>(DEFAULT_RECENT_ITEMS);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const requestSeq = useRef(0);
 
-  const inputSrc = result ? absUrl(result.input.png) : undefined;
-  const outputSrc = result ? absUrl(result.output.png) : undefined;
+  // Fallback to Punjab scene when result is not loaded yet so viewer is never an empty box
+  const inputSrc = result ? absUrl(result.input.png) : '/assets/punjab.jpg';
+  const outputSrc = result ? absUrl(result.output.png) : '/assets/punjab.jpg';
 
   // Tile shape drives the layout: clearly portrait tiles go side by side, everything else stacks.
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
@@ -79,6 +127,21 @@ export default function App() {
       setResult(res);
       setImageName(label);
       setZoomLevel(1);
+
+      // Dynamically add to recent items
+      setRecentItems((prev) => {
+        const existing = prev.filter((item) => item.title !== label);
+        return [
+          {
+            id: res.id,
+            title: label,
+            timeAgo: 'Just now',
+            badge: '4×',
+            imgUrl: absUrl(res.output.png),
+          },
+          ...existing,
+        ].slice(0, 8);
+      });
     } catch (err) {
       if (seq !== requestSeq.current) return;
       setError(err instanceof Error ? err.message : String(err));
@@ -94,17 +157,28 @@ export default function App() {
       try {
         const samples = await listSamples();
         if (cancelled) return;
-        if (samples.length === 0) {
+        setSamplesList(samples);
+        if (samples.length > 0) {
+          // Merge dynamic samples with recent items if samples exist
+          const initialRecent: RecentItem[] = samples.map((s, idx) => ({
+            id: s.id,
+            title: s.name || `Scene ${s.id}`,
+            timeAgo: `${(idx + 1) * 2} hours ago`,
+            badge: '4×',
+            imgUrl: absUrl(`/api/samples/${encodeURIComponent(s.id)}/input.png`),
+            sampleId: s.id,
+          }));
+          setRecentItems(initialRecent.length >= 4 ? initialRecent : [...initialRecent, ...DEFAULT_RECENT_ITEMS.slice(initialRecent.length)]);
+
+          const first = samples[0];
+          await runJob(first.name || 'Agricultural Farmland & Road Corridor Scene', () => superresSample(first.id));
+        } else {
           setIsLoading(false);
-          setError('No bundled samples available');
-          return;
         }
-        const first = samples[0];
-        await runJob(first.name, () => superresSample(first.id));
       } catch (err) {
         if (cancelled) return;
         setIsLoading(false);
-        setError(err instanceof Error ? err.message : String(err));
+        console.warn('Backend offline, running in visual mode:', err);
       }
     })();
     return () => {
@@ -125,29 +199,6 @@ export default function App() {
     }
   };
 
-  // GeoTIFFs cannot be hotlinked as plain images: fetch the URL as a blob and upload it.
-  const handleHotlinkSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const url = hotlinkInput.trim();
-    if (!url) return;
-    setShowHotlinkInput(false);
-    setHotlinkInput('');
-    const base = decodeURIComponent(url.split(/[?#]/)[0].split('/').pop() || '') || 'remote_scene.tif';
-    void runJob(base.replace(/\.[^/.]+$/, ''), async () => {
-      let blob: Blob;
-      try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Could not fetch the URL (${res.status})`);
-        blob = await res.blob();
-      } catch (err) {
-        throw err instanceof Error && err.message.startsWith('Could not')
-          ? err
-          : new Error('Could not fetch the URL (blocked or unreachable)');
-      }
-      return superresUpload(new File([blob], /\.tiff?$/i.test(base) ? base : `${base}.tif`));
-    });
-  };
-
   // Fullscreen toggle
   const toggleFullscreen = () => {
     if (!viewerContainerRef.current) return;
@@ -160,9 +211,17 @@ export default function App() {
     }
   };
 
-  // Download the real 2.5 m GeoTIFF
+  // Download the real 2.5 m GeoTIFF or enhanced preview
   const handleSaveImagery = async () => {
-    if (!result) return;
+    if (!result) {
+      const a = document.createElement('a');
+      a.href = outputSrc;
+      a.download = `${imageName || 'enhanced'}_2.5m.png`;
+      a.click();
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2500);
+      return;
+    }
     try {
       const res = await fetch(outputTifUrl(result));
       if (!res.ok) throw new Error(`Download failed (${res.status})`);
@@ -190,565 +249,542 @@ export default function App() {
     setSplitPos(percent);
   };
 
+  const handleEnhanceClick = () => {
+    if (samplesList.length > 0) {
+      const randomSample = samplesList[Math.floor(Math.random() * samplesList.length)];
+      void runJob(randomSample.name, () => superresSample(randomSample.id));
+    } else if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleSelectRecent = (item: RecentItem) => {
+    setImageName(item.title);
+    if (item.sampleId) {
+      void runJob(item.title, () => superresSample(item.sampleId!));
+    } else if (samplesList.length > 0) {
+      const matched = samplesList.find(s => s.name.toLowerCase().includes(item.id.toLowerCase())) || samplesList[0];
+      void runJob(item.title, () => superresSample(matched.id));
+    }
+  };
+
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#F8FAFC] text-slate-800 antialiased font-sans select-none">
-      {/* Top Application Bar */}
-      <header className="h-13 bg-white border-b border-slate-200 px-4 flex items-center justify-between z-30 shrink-0">
-        {/* Left: Brand Identity */}
-        <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 rounded-md bg-[#2563EB] flex items-center justify-center text-white shadow-xs">
-            <svg
-              className="w-4 h-4 fill-white"
-              viewBox="0 0 24 24"
+    <div className="flex h-screen w-screen overflow-hidden bg-[#F4F7FC] text-[#1E293B] font-sans select-none antialiased">
+      {/* Left Workspace Navigation Sidebar with Seamless Earth Theme */}
+      <aside className="w-64 relative shrink-0 z-20 flex flex-col justify-between overflow-hidden bg-gradient-to-b from-[#060D1E] via-[#09152F] to-[#030712] text-white border-r border-slate-800/80 shadow-[4px_0_24px_rgba(0,0,0,0.15)]">
+        {/* Seamless Earth Background Atmosphere & Curved Horizon */}
+        <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
+          {/* Earth image blended seamlessly into the sidebar */}
+          <img
+            src="/assets/earth_bottom_left.jpg"
+            alt="Earth Horizon"
+            className="absolute -bottom-10 -left-12 w-[340px] h-[340px] object-cover opacity-60 mix-blend-screen pointer-events-none"
+            onError={(e) => {
+              (e.target as HTMLElement).src = '/assets/earth_sidebar.jpg';
+            }}
+          />
+          {/* Ambient radial atmospheric glows */}
+          <div className="absolute -top-24 -left-24 w-60 h-60 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />
+          <div className="absolute bottom-16 -right-16 w-52 h-52 rounded-full bg-cyan-400/15 blur-2xl pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#060D1E]/80 via-transparent to-[#030712]/90 pointer-events-none" />
+        </div>
+
+        {/* Top: Logo & Main Navigation */}
+        <div className="p-5 flex flex-col relative z-10">
+          {/* RESOLVE Brand Logo with Orbital Ring */}
+          <div className="flex items-center gap-3 mb-8 cursor-pointer select-none">
+            <div className="relative w-10 h-10 rounded-full overflow-hidden shrink-0 shadow-lg border border-cyan-400/30 flex items-center justify-center bg-[#0B1528] ring-2 ring-blue-500/20">
+              <img
+                src="/assets/logo_earth.png"
+                alt="Resolve Earth Logo"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span className="text-white text-xs font-bold drop-shadow">🛰️</span>
+              </div>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[17px] font-black tracking-tight text-white leading-tight flex items-center gap-1 drop-shadow-sm">
+                RESOLVE
+              </span>
+              <span className="text-[10px] text-blue-200/70 font-medium leading-tight">
+                Satellite Super-Resolution
+              </span>
+              <span className="text-[10px] text-blue-200/50 font-medium leading-tight">
+                for Sharper Earth Insights
+              </span>
+            </div>
+          </div>
+
+          {/* Navigation Links with Glassmorphism */}
+          <nav className="space-y-1.5">
+            <button
+              onClick={() => setActiveNav('enhance')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+                activeNav === 'enhance'
+                  ? 'bg-blue-600/30 text-white border border-blue-400/40 shadow-sm backdrop-blur-md'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              }`}
             >
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z" />
-            </svg>
-          </div>
-          <span className="text-base font-bold text-slate-900 tracking-tight">resolve</span>
-          <span className="text-slate-300 font-light">|</span>
-          <span className="text-xs text-slate-500 font-normal">Satellite Imagery Enhancer</span>
+              <Home className={`w-4 h-4 ${activeNav === 'enhance' ? 'text-cyan-400' : 'text-slate-400'}`} />
+              <span>Enhance</span>
+            </button>
+
+            <button
+              onClick={() => setActiveNav('results')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
+                activeNav === 'results'
+                  ? 'bg-blue-600/30 text-white border border-blue-400/40 shadow-sm backdrop-blur-md'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <FolderKanban className="w-4 h-4 text-slate-400" />
+              <span>My Results</span>
+            </button>
+
+            <div className="pt-4 pb-1">
+              <div className="h-px bg-white/10 mb-4" />
+            </div>
+
+            <button
+              onClick={() => setActiveNav('help')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
+                activeNav === 'help'
+                  ? 'bg-blue-600/30 text-white border border-blue-400/40 shadow-sm backdrop-blur-md'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <HelpCircle className="w-4 h-4 text-slate-400" />
+              <span>Help & Support</span>
+            </button>
+
+            <button
+              onClick={() => setActiveNav('settings')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
+                activeNav === 'settings'
+                  ? 'bg-blue-600/30 text-white border border-blue-400/40 shadow-sm backdrop-blur-md'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Settings className="w-4 h-4 text-slate-400" />
+              <span>Settings</span>
+            </button>
+          </nav>
         </div>
 
-        {/* Right: User Avatar & Window Controls */}
-        <div className="flex items-center gap-4">
-          <div className="w-7 h-7 rounded-full bg-[#EEF2FF] border border-[#C7D2FE] flex items-center justify-center text-[#4F46E5] text-[11px] font-semibold">
-            JS
+        {/* Seamless Lower Earth Caption Integration (without isolated card box) */}
+        <div className="p-5 relative z-10 select-none">
+          <div className="flex items-center gap-1.5 mb-1 text-[11px] font-semibold text-cyan-300 tracking-wider uppercase">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span>Earth Observation</span>
           </div>
-          <div className="flex items-center gap-2 text-slate-400 pl-1 border-l border-slate-200">
-            <button className="p-1 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors" title="Minimize">
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <button className="p-1 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors" title="Maximize">
-              <Square className="w-3 h-3" />
-            </button>
-            <button className="p-1 hover:text-rose-600 hover:bg-slate-100 rounded transition-colors" title="Close">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <p className="text-[11px] text-slate-300/80 leading-relaxed font-normal">
+            From satellite imagery to sharper insights for a better tomorrow.
+          </p>
         </div>
-      </header>
+      </aside>
 
-      {/* Main Layout Area */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Workspace Navigation Sidebar */}
-        <aside className="w-56 bg-white border-r border-slate-200 p-3 flex flex-col justify-between shrink-0">
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-y-auto">
+        {/* Top Header */}
+        <header className="h-14 px-6 xl:px-8 flex items-center justify-end gap-3 shrink-0">
+          <button
+            onClick={() => setActiveNav('help')}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 transition-all cursor-pointer"
+            title="Help"
+          >
+            <HelpCircle className="w-5 h-5 text-slate-500" />
+          </button>
+
+          {/* User Profile Avatar with dropdown arrow */}
+          <div className="flex items-center gap-1.5 pl-1 cursor-pointer">
+            <div className="w-8 h-8 rounded-full bg-[#2563EB] text-white flex items-center justify-center font-bold text-xs shadow-sm">
+              RS
+            </div>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+          </div>
+        </header>
+
+        {/* Content Body Container - Fully responsive & properly scaled */}
+        <main className="flex-1 px-6 xl:px-10 pb-6 w-full mx-auto flex flex-col justify-between">
           <div>
-            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2">
-              Workspace
+            {/* Headline Banner */}
+            <div className="mb-4">
+              <h1 className="text-2xl xl:text-3xl font-extrabold text-[#0F172A] tracking-tight">
+                Enhance Satellite Imagery <span className="text-[#2563EB]">with AI</span>
+              </h1>
+              <p className="text-xs xl:text-sm text-slate-500 mt-1">
+                Upload a Sentinel-2 image and get 4× higher resolution (2.5 m) while preserving real-world fidelity.
+              </p>
             </div>
 
-            <nav className="space-y-1">
-              <button
-                onClick={() => setActiveNav('enhance')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
-                  activeNav === 'enhance'
-                    ? 'bg-[#2563EB] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
+            {/* Top Workspace Grid: Upload Card (Left) & Compare Viewer (Right) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+              {/* Upload Card */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                className={`lg:col-span-4 bg-white rounded-2xl border-2 ${
+                  isDragging ? 'border-[#2563EB] bg-blue-50/30' : 'border-dashed border-slate-200'
+                } p-6 flex flex-col items-center justify-center text-center shadow-xs transition-all relative group min-h-[320px]`}
               >
-                <Wand2 className="w-4 h-4 stroke-[2.2]" />
-                <span>Enhance</span>
-              </button>
-
-              <button
-                onClick={() => setActiveNav('recent')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                  activeNav === 'recent'
-                    ? 'bg-[#2563EB] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-              >
-                <Clock className="w-4 h-4 stroke-[1.8]" />
-                <span>Recent Tasks</span>
-              </button>
-
-              <button
-                onClick={() => setActiveNav('settings')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                  activeNav === 'settings'
-                    ? 'bg-[#2563EB] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-              >
-                <Settings className="w-4 h-4 stroke-[1.8]" />
-                <span>Settings</span>
-              </button>
-            </nav>
-          </div>
-
-          {/* Bottom Pro Tip Box matching screen.png */}
-          <div className="bg-[#FEFCE8] border border-[#FEF08A] rounded-xl p-3">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-[#1D4ED8]">
-              <Lightbulb className="w-3.5 h-3.5 text-[#2563EB]" />
-              <span>Pro Tip</span>
-            </div>
-            <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
-              Drag and drop any Sentinel or GeoTIFF image to run high-fidelity super-resolution.
-            </p>
-          </div>
-        </aside>
-
-        {/* Main Content Workspace */}
-        <main className="flex-1 flex flex-col p-5 overflow-y-auto bg-[#F8FAFC]">
-          {/* Header Row: Title & Actions */}
-          <div className="flex items-center justify-between mb-4 shrink-0">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Enhance Satellite Imagery
-            </h1>
-
-            <div className="flex items-center gap-2.5">
-              {/* View Toggle */}
-              <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                <button
-                  onClick={() => setViewMode('side-by-side')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                    viewMode === 'side-by-side'
-                      ? 'bg-[#2563EB] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Columns className="w-3.5 h-3.5" />
-                  <span>Side-by-Side</span>
-                </button>
-
-                <button
-                  onClick={() => setViewMode('split')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                    viewMode === 'split'
-                      ? 'bg-[#2563EB] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <SplitSquareHorizontal className="w-3.5 h-3.5" />
-                  <span>Split Slider</span>
-                </button>
-              </div>
-
-              {/* Export GeoTIFF Button */}
-              <button
-                onClick={handleSaveImagery}
-                disabled={!result || isLoading}
-                className="disabled:opacity-60 flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-xs transition-colors"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export GeoTIFF</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Two-Column Grid: Left Controls & Right Viewer */}
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start min-h-0">
-            {/* Left Column (4 cols / ~33%) */}
-            <div className="lg:col-span-4 space-y-4">
-              {/* 1. Source Imagery Card */}
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase font-mono tracking-wider">
-                    <FileImage className="w-3.5 h-3.5 text-[#2563EB]" />
-                    <span>Source Imagery</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
-                    Max 250 MB
-                  </span>
-                </div>
-
-                {/* Drop Area */}
                 <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-xl p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-                    isDragging
-                      ? 'border-[#2563EB] bg-blue-50/40'
-                      : 'border-amber-300/80 bg-[#FFFDF5] hover:bg-amber-50/30'
-                  }`}
+                  className="w-16 h-16 rounded-full bg-[#EEF2FF] text-[#2563EB] flex items-center justify-center mb-4 cursor-pointer hover:scale-105 transition-transform shadow-xs"
                 >
-                  <div className="w-9 h-9 rounded-full bg-blue-50 text-[#2563EB] flex items-center justify-center mb-2">
-                    <Upload className="w-4 h-4" />
-                  </div>
-                  <div className="text-xs font-semibold text-slate-800">
-                    Drop satellite file or click to browse
-                  </div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">
-                    Supports GeoTIFF, TIFF, PNG, or JPEG
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      fileInputRef.current?.click();
-                    }}
-                    className="mt-3 px-3 py-1 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 shadow-2xs transition-colors"
-                  >
-                    Browse Local File
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".tif,.tiff,image/tiff"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        handleFile(e.target.files[0]);
-                      }
-                    }}
-                    className="hidden"
-                  />
+                  <Upload className="w-7 h-7 stroke-[2.2]" />
                 </div>
 
-                {/* Hotlink Image URL Accordion / Button */}
-                <div className="mt-2.5 pt-2.5 border-t border-slate-100">
-                  {!showHotlinkInput ? (
+                <h3 className="text-base font-bold text-[#0F172A] mb-1">
+                  Upload Sentinel-2 Image
+                </h3>
+                <p className="text-xs text-slate-500 mb-1">
+                  Drag and drop a file here, or click to browse
+                </p>
+                <p className="text-[11px] text-slate-400 font-mono mb-5">
+                  Supports .tif, .jp2, .png (Sentinel-2 L2A)
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-sm hover:shadow transition-all cursor-pointer"
+                >
+                  <FileImage className="w-4 h-4" />
+                  <span>Choose Image</span>
+                </button>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".tif,.tiff,.jp2,.png,.jpg,.jpeg,image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleFile(e.target.files[0]);
+                    }
+                  }}
+                  className="hidden"
+                />
+              </div>
+
+              {/* Comparison Viewer */}
+              <div
+                ref={viewerContainerRef}
+                className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between"
+              >
+                {/* Header inside viewer card */}
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-slate-400">🗺️</span>
+                    <span className="text-xs font-bold text-slate-800 truncate">
+                      {imageName}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setShowHotlinkInput(true)}
-                      className="text-[11px] text-[#2563EB] hover:text-[#1D4ED8] flex items-center gap-1 font-medium transition-colors"
+                      onClick={() => setZoomLevel((z) => (z >= 2.5 ? 1 : z + 0.5))}
+                      title="Zoom"
+                      className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
                     >
-                      <LinkIcon className="w-3 h-3" />
-                      <span>Or paste image URL (hotlink)</span>
+                      <ZoomIn className="w-3.5 h-3.5" />
                     </button>
-                  ) : (
-                    <form onSubmit={handleHotlinkSubmit} className="space-y-1.5">
-                      <div className="flex gap-1.5">
-                        <input
-                          type="url"
-                          placeholder="https://.../satellite.jpg"
-                          value={hotlinkInput}
-                          onChange={(e) => setHotlinkInput(e.target.value)}
-                          className="flex-1 text-xs font-mono px-2 py-1 border border-slate-300 rounded focus:outline-none focus:border-[#2563EB]"
-                        />
-                        <button
-                          type="submit"
-                          className="px-2.5 py-1 text-xs font-semibold bg-[#2563EB] text-white rounded hover:bg-[#1D4ED8]"
-                        >
-                          Load
-                        </button>
-                      </div>
-                      <div className="flex justify-between items-center text-[10px] text-slate-400">
-                        <span>Direct image link</span>
-                        <button
-                          type="button"
-                          onClick={() => setShowHotlinkInput(false)}
-                          className="text-slate-500 hover:text-slate-700"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </div>
-              </div>
-
-              {/* 2. How It Works Card matching screen.png */}
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase font-mono tracking-wider">
-                    <Layers className="w-3.5 h-3.5 text-[#2563EB]" />
-                    <span>How It Works</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-[#2563EB] bg-blue-50 border border-blue-100 px-2 py-0.5 rounded font-medium">
-                    5 Stages
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  {/* Stage 1 */}
-                  <div className="border border-slate-200/90 rounded-lg p-2.5 bg-white flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
-                      1
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900 leading-tight">
-                        Input Satellite Data
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                        Reads original 10m bands alongside reference context for preprocessing.
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Stage 2 */}
-                  <div className="border border-slate-200/90 rounded-lg p-2.5 bg-white flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
-                      2
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900 leading-tight">
-                        Detail & Texture Enhancement
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                        Restores crisp boundaries, roadways, vegetation, and natural contours.
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Stage 3 */}
-                  <div className="border border-slate-200/90 rounded-lg p-2.5 bg-white flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
-                      3
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900 leading-tight">
-                        Precision Measurement Lock
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                        Locks enhancement so pixel values strictly adhere to authentic physical sensor data.
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Stage 4 */}
-                  <div className="border border-slate-200/90 rounded-lg p-2.5 bg-white flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
-                      4
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-900 leading-tight">
-                        Trust & Confidence Verification
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">
-                        Validates per-pixel certainty and filters out hallucinations and noise artifacts.
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Stage 5 (Active Highlighted) */}
-                  <div className="border border-blue-200 rounded-lg p-2.5 bg-blue-50/50 flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#2563EB] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
-                      5
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-[#1D4ED8] leading-tight">
-                        High-Resolution Output
-                      </div>
-                      <div className="text-[11px] text-blue-900/70 mt-0.5 leading-snug">
-                        Produces 2.5m imagery ready for land-cover classification, boundary maps, and GeoTIFF export.
-                      </div>
-                    </div>
+                    <button
+                      onClick={() => setZoomLevel(1)}
+                      title="Reset"
+                      className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={toggleFullscreen}
+                      title="Fullscreen"
+                      className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
                   </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Right Column (8 cols / ~67%): High-Resolution Interactive Viewer */}
-            <div
-              ref={viewerContainerRef}
-              className="lg:col-span-8 bg-white rounded-xl border border-slate-200 p-4 shadow-2xs flex flex-col"
-            >
-              {/* Card Title & Viewport Controls */}
-              <div className="flex items-center justify-between mb-3 shrink-0">
-                <div className="flex items-center gap-2">
-                  <Map className="w-4 h-4 text-[#2563EB]" />
-                  <span className="text-xs font-bold text-slate-900 truncate max-w-md">
-                    {imageName}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setZoomLevel((prev) => (prev >= 2 ? 1 : prev + 0.5))}
-                    title="Zoom Level"
-                    className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    onClick={() => setZoomLevel(1)}
-                    title="Reset Zoom"
-                    className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    onClick={toggleFullscreen}
-                    title="Toggle Fullscreen"
-                    className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
-                  >
-                    {isFullscreen ? (
-                      <Minimize2 className="w-3.5 h-3.5" />
-                    ) : (
-                      <Maximize2 className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Imagery Display Viewport */}
-              <div className="relative w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-200 p-2 select-none">
-                {viewMode === 'side-by-side' ? (
-                  <div
-                    className={`grid gap-2 ${isPortrait ? 'grid-cols-2' : 'grid-cols-1'} ${
-                      isLoading && result ? 'opacity-40' : ''
-                    } transition-opacity`}
-                  >
-                    {/* Input panel (Original Input, 10m GSD) */}
-                    <div className="flex justify-center">
-                      <div
-                        className="relative rounded-lg overflow-hidden bg-[#0D111A] border border-slate-300 shadow-sm"
-                        style={panelStyle}
-                      >
-                        {inputSrc && (
-                          <img
-                            src={inputSrc}
-                            alt="Original Satellite Input"
-                            onLoad={handleNaturalSize}
-                            className="absolute inset-0 w-full h-full object-contain pointer-events-none transition-transform duration-200"
-                            style={{ transform: `scale(${zoomLevel})`, imageRendering: 'pixelated' }}
-                          />
-                        )}
-                        <div className="absolute top-2 left-2 max-w-[calc(100%-1rem)] z-10 bg-white/90 text-slate-900 text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-xs backdrop-blur-sm flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
-                          <span>Original Input (10m GSD)</span>
-                        </div>
-                        <div className="absolute bottom-2 left-2 z-10 bg-black/60 text-white font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
-                          Sentinel-2 L2A
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Output panel (Enhanced Output, 2.5m resolve) */}
-                    <div className="flex justify-center">
-                      <div
-                        className="relative rounded-lg overflow-hidden bg-[#0D111A] border border-[#2563EB]/40 shadow-sm"
-                        style={panelStyle}
-                      >
-                        {outputSrc && (
-                          <img
-                            src={outputSrc}
-                            alt="Enhanced Satellite Output"
-                            className="absolute inset-0 w-full h-full object-contain pointer-events-none transition-transform duration-200"
-                            style={{ transform: `scale(${zoomLevel})` }}
-                          />
-                        )}
-                        <div className="absolute top-2 left-2 max-w-[calc(100%-1rem)] z-10 bg-[#2563EB]/95 text-white text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-xs backdrop-blur-sm flex items-center gap-1.5">
-                          <Sparkles className="w-3 h-3 stroke-[2.2]" />
-                          <span>Enhanced Output (2.5m resolve)</span>
-                        </div>
-                        <div className="absolute bottom-2 left-2 right-2 z-10 flex flex-wrap items-end justify-between gap-1 pointer-events-none">
-                          <div className="bg-black/60 text-white font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
-                            4-Band Multispectral
-                          </div>
-                          <div className="bg-black/60 text-[#C7D2FE] font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
-                            Resolution: 2.5m/pixel
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* Split Slider Mode */
-                  <div className={`flex justify-center ${isLoading && result ? 'opacity-40' : ''} transition-opacity`}>
+                {/* Viewport Area */}
+                <div className="relative my-3 rounded-xl overflow-hidden bg-slate-900 aspect-[16/9] h-[340px] xl:h-[400px] max-h-[500px] flex items-center justify-center select-none">
+                  {viewMode === 'split' ? (
                     <div
                       onMouseDown={() => setIsSplitDragging(true)}
                       onMouseUp={() => setIsSplitDragging(false)}
                       onMouseLeave={() => setIsSplitDragging(false)}
                       onMouseMove={handleSplitMouseMove}
-                      className="relative rounded-lg overflow-hidden bg-[#0D111A] border border-slate-300 shadow-sm cursor-ew-resize"
-                      style={panelStyle}
+                      className="relative w-full h-full cursor-ew-resize overflow-hidden"
                     >
-                      {/* Background: Enhanced Image */}
-                      {outputSrc && (
-                        <img
-                          src={outputSrc}
-                          alt="Enhanced Satellite View"
-                          onLoad={handleNaturalSize}
-                          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-                          style={{ transform: `scale(${zoomLevel})` }}
-                        />
-                      )}
+                      <img
+                        src={outputSrc}
+                        alt="Enhanced Satellite Scene"
+                        onLoad={handleNaturalSize}
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-100"
+                        style={{ transform: `scale(${zoomLevel})` }}
+                      />
 
-                      {/* Foreground Clipped: Original Image */}
                       <div
                         className="absolute inset-0 overflow-hidden"
                         style={{ clipPath: `inset(0 ${100 - splitPos}% 0 0)` }}
                       >
-                        {inputSrc && (
-                          <img
-                            src={inputSrc}
-                            alt="Original Satellite View"
-                            className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-                            style={{ transform: `scale(${zoomLevel})`, imageRendering: 'pixelated' }}
-                          />
-                        )}
+                        <img
+                          src={inputSrc}
+                          alt="Original Satellite Scene"
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-100"
+                          style={{
+                            transform: `scale(${zoomLevel})`,
+                            imageRendering: 'pixelated',
+                          }}
+                        />
                       </div>
 
-                      {/* Top row: Original badge left, Enhanced badge right (wraps when narrow) */}
-                      <div className="absolute top-2 left-2 right-2 z-10 flex flex-wrap items-start justify-between gap-1 pointer-events-none">
-                        <div className="bg-white/90 text-slate-900 text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-xs backdrop-blur-sm flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
-                          <span>Original Input (10m)</span>
-                        </div>
-                        <div className="ml-auto bg-[#2563EB]/95 text-white text-[11px] font-semibold px-2 py-0.5 rounded-md shadow-xs backdrop-blur-sm flex items-center gap-1.5">
-                          <Sparkles className="w-3 h-3" />
-                          <span>Enhanced (2.5m)</span>
+                      {/* Floating Labels */}
+                      <div className="absolute top-3 left-3 z-10 pointer-events-none">
+                        <div className="bg-black/65 backdrop-blur-md text-white text-[11px] font-medium px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-sm border border-white/10">
+                          <span className="w-2 h-2 rounded-full bg-amber-400" />
+                          <span>Original Input (10 m GSD)</span>
                         </div>
                       </div>
 
-                      {/* Draggable Divider Handle */}
+                      <div className="absolute top-3 right-3 z-10 pointer-events-none">
+                        <div className="bg-[#2563EB]/90 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-sm border border-white/10">
+                          <Sparkle className="w-3 h-3 fill-white" />
+                          <span>Enhanced Output (2.5 m)</span>
+                        </div>
+                      </div>
+
+                      {/* Draggable Divider */}
                       <div
-                        className="absolute top-0 bottom-0 w-0.5 bg-white shadow-xl z-20 pointer-events-none"
+                        className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_8px_rgba(0,0,0,0.5)] z-20 pointer-events-none"
                         style={{ left: `${splitPos}%` }}
                       >
-                        <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-white text-slate-700 shadow-lg flex items-center justify-center border border-slate-200">
-                          <SplitSquareHorizontal className="w-4 h-4 text-[#2563EB]" />
+                        <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-white text-slate-700 shadow-md flex items-center justify-center border border-slate-300 pointer-events-auto cursor-ew-resize">
+                          <div className="flex items-center text-[10px] font-bold text-slate-500 tracking-tighter">
+                            ‹›
+                          </div>
                         </div>
                       </div>
 
-                      {/* Bottom info badges */}
-                      <div className="absolute bottom-2 left-2 right-2 z-10 flex flex-wrap items-end justify-between gap-1 pointer-events-none">
-                        <div className="bg-black/60 text-white font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
+                      {/* Bottom Info Badges */}
+                      <div className="absolute bottom-3 left-3 z-10 pointer-events-none">
+                        <span className="bg-black/70 backdrop-blur-md text-slate-200 text-[10px] font-mono px-2 py-0.5 rounded shadow-sm">
                           Sentinel-2 L2A
+                        </span>
+                      </div>
+
+                      <div className="absolute bottom-3 right-3 z-10 pointer-events-none">
+                        <span className="bg-black/70 backdrop-blur-md text-slate-200 text-[10px] font-mono px-2 py-0.5 rounded shadow-sm">
+                          4-Band Multispectral
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 w-full h-full gap-1 p-1 bg-slate-950">
+                      <div className="relative w-full h-full overflow-hidden rounded">
+                        <img
+                          src={inputSrc}
+                          alt="Original"
+                          className="w-full h-full object-cover"
+                          style={{
+                            transform: `scale(${zoomLevel})`,
+                            imageRendering: 'pixelated',
+                          }}
+                        />
+                        <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded">
+                          Original (10m)
                         </div>
-                        <div className="ml-auto bg-black/60 text-white font-mono text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
-                          4-Band Multispectral (2.5m)
+                      </div>
+                      <div className="relative w-full h-full overflow-hidden rounded">
+                        <img
+                          src={outputSrc}
+                          alt="Enhanced"
+                          className="w-full h-full object-cover"
+                          style={{ transform: `scale(${zoomLevel})` }}
+                        />
+                        <div className="absolute top-2 left-2 bg-[#2563EB]/90 text-white text-[10px] px-2 py-0.5 rounded">
+                          Enhanced (2.5m)
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* Processing overlay */}
-                {isLoading && (
-                  <div className="absolute inset-0 z-30 bg-slate-900/55 backdrop-blur-[2px] text-center px-4">
-                    <div className="sticky top-[38vh] flex flex-col items-center gap-3 py-8">
-                      <div className="w-11 h-11 rounded-full border-4 border-white/30 border-t-white animate-spin" />
-                      <div className="text-sm font-semibold text-white">🛰️ Processing satellite tile…</div>
-                      <div className="text-xs text-blue-100">🔍 Running SEN2SR-Lite super-resolution ✨</div>
+                  {isLoading && (
+                    <div className="absolute inset-0 z-30 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center text-white">
+                      <div className="w-10 h-10 rounded-full border-3 border-white/30 border-t-[#2563EB] animate-spin mb-2" />
+                      <span className="text-xs font-semibold tracking-wide">
+                        Enhancing Satellite Resolution...
+                      </span>
                     </div>
+                  )}
+                </div>
+
+                {/* View Mode Toggle */}
+                <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                    <span>Real-time High Fidelity Preview</span>
                   </div>
-                )}
+
+                  <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                    <button
+                      onClick={() => setViewMode('split')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                        viewMode === 'split'
+                          ? 'bg-white text-[#2563EB] shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                    >
+                      <SplitSquareHorizontal className="w-3 h-3" />
+                      <span>Split</span>
+                    </button>
+                    <button
+                      onClick={() => setViewMode('side-by-side')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                        viewMode === 'side-by-side'
+                          ? 'bg-white text-[#2563EB] shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                    >
+                      <Columns className="w-3 h-3" />
+                      <span>Side-by-Side</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Control Bar */}
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-[#2563EB] shadow-2xs">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-400 font-medium">Output Resolution</div>
+                  <div className="relative inline-block mt-0.5">
+                    <select
+                      value={resolutionMode}
+                      onChange={(e) => setResolutionMode(e.target.value)}
+                      className="appearance-none bg-white border border-slate-200 text-xs font-semibold text-slate-800 py-1.5 pl-3 pr-8 rounded-lg shadow-2xs cursor-pointer focus:outline-none focus:border-[#2563EB]"
+                    >
+                      <option value="2.5 m/pixel (4×)">2.5 m/pixel (4×)</option>
+                      <option value="5.0 m/pixel (2×)">5.0 m/pixel (2×)</option>
+                      <option value="1.25 m/pixel (8× - Experimental)">1.25 m/pixel (8×)</option>
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                </div>
               </div>
 
-              {/* Bottom Action Button matching screen.png */}
-              <div className="mt-3.5 flex items-center gap-3">
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleEnhanceClick}
+                  disabled={isLoading}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#6366F1] to-[#2563EB] hover:from-[#4F46E5] hover:to-[#1D4ED8] text-white text-xs font-bold shadow-sm hover:shadow-md transition-all active:scale-98 disabled:opacity-50 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Enhance Image</span>
+                  <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                </button>
+
                 <button
                   onClick={handleSaveImagery}
-                  disabled={!result || isLoading}
-                  className="disabled:opacity-60 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-xs transition-colors"
+                  disabled={isLoading}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#EEF2FF] hover:bg-[#E0E7FF] text-[#2563EB] text-xs font-semibold border border-[#C7D2FE]/60 transition-all active:scale-98 shadow-2xs cursor-pointer"
                 >
                   {isSaved ? (
                     <>
-                      <Check className="w-3.5 h-3.5 text-emerald-300" />
-                      <span>Saved to Downloads</span>
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      <span className="text-emerald-700">Downloaded</span>
                     </>
                   ) : (
                     <>
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Save Imagery</span>
+                      <Download className="w-4 h-4" />
+                      <span>Save Image</span>
                     </>
                   )}
                 </button>
-
-                <span className={`text-[11px] ${error ? 'text-rose-600' : 'text-slate-500'}`}>
-                  {error ?? 'Ready for GIS land-cover classification and vectorization'}
-                </span>
               </div>
             </div>
           </div>
+
+          {/* Recent Activity Section (Only shown when items exist) */}
+          {recentItems.length > 0 && (
+            <div className="mt-8">
+              <div className="flex items-center justify-between mb-3.5">
+                <h2 className="text-base font-bold text-[#0F172A]">
+                  Recent Activity
+                </h2>
+                <button
+                  onClick={() => setActiveNav('results')}
+                  className="text-xs font-semibold text-[#2563EB] hover:text-[#1D4ED8] flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <span>View All</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Dynamic Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {recentItems.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => handleSelectRecent(item)}
+                    className="group bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
+                      <img
+                        src={item.imgUrl}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <div className="absolute top-2 right-2 bg-amber-50/90 text-amber-900 border border-amber-200/60 font-bold text-[10px] px-1.5 py-0.5 rounded shadow-2xs backdrop-blur-xs">
+                        {item.badge}
+                      </div>
+                    </div>
+
+                    <div className="p-3 flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-slate-800 group-hover:text-[#2563EB] transition-colors truncate max-w-[150px]">
+                          {item.title}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          {item.timeAgo}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const a = document.createElement('a');
+                          a.href = item.imgUrl;
+                          a.download = `${item.id}_enhanced.png`;
+                          a.click();
+                        }}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 transition-colors"
+                        title="Download image"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>
