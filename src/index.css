@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-sans: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -14,6 +16,74 @@
   --color-primary-container: #1254eb;
   --color-cream: #f9ecc2;
   --color-navy: #0d2e68;
+}
+
+/* Semantic theme tokens. Light values first, dark palette under .dark. */
+:root {
+  --page: #f4f7fc;
+  --card: #ffffff;
+  --raised: #ffffff;
+  --sunken: #f1f5f9;
+  --line: #e2e8f0;
+  --line-soft: #f1f5f9;
+  --line-strong: #cbd5e1;
+  --ink: #0f172a;
+  --body: #334155;
+  --muted: #64748b;
+  --faint: #66758b;
+  --accent-text: #2563eb;
+  --accent-text-hover: #1d4ed8;
+  --accent-soft: #eef2ff;
+  --accent-soft-hover: #e0e7ff;
+  --accent-line: rgba(199, 210, 254, 0.6);
+  color-scheme: light;
+}
+
+.dark {
+  --page: #0b1120;
+  --card: #0f172a;
+  --raised: #1e293b;
+  --sunken: #151f33;
+  --line: #1e293b;
+  --line-soft: #172033;
+  --line-strong: #334155;
+  --ink: #f1f5f9;
+  --body: #cbd5e1;
+  --muted: #94a3b8;
+  --faint: #7d8ba1;
+  --accent-text: #60a5fa;
+  --accent-text-hover: #93c5fd;
+  --accent-soft: rgba(59, 130, 246, 0.14);
+  --accent-soft-hover: rgba(59, 130, 246, 0.22);
+  --accent-line: rgba(96, 165, 250, 0.25);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-card: var(--card);
+  --color-raised: var(--raised);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-body: var(--body);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent-text: var(--accent-text);
+  --color-accent-text-hover: var(--accent-text-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-hover: var(--accent-soft-hover);
+  --color-accent-line: var(--accent-line);
+}
+
+/* Brief colour fade while the theme toggles; the class is only present for ~200 ms. */
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease,
+    fill 180ms ease, stroke 180ms ease;
 }
 
 body {
@@ -44,3 +114,9 @@ body {
   background: rgba(18, 84, 235, 0.4);
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(96, 165, 250, 0.45);
+}

@@ -24,12 +24,15 @@ import {
   SplitSquareHorizontal,
   Columns,
   FileImage,
-  Sparkle
+  Sparkle,
+  Satellite,
+  Map as MapIcon
 } from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { absUrl, outputTifUrl } from './api';
 import { RunProvider, useRun, type RecentItem } from './components/run/RunContext';
 import RunPage from './components/run/RunPage';
+import { ThemeToggle } from './theme';
 
 export default function App() {
   return (
@@ -168,9 +171,9 @@ function Workspace() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#F4F7FC] text-[#1E293B] font-sans select-none antialiased">
+    <div className="flex h-screen w-screen overflow-hidden bg-page text-body font-sans select-none antialiased">
       {/* Left Workspace Navigation Sidebar with Seamless Earth Theme */}
-      <aside className="w-64 relative shrink-0 z-20 flex flex-col justify-between overflow-hidden bg-gradient-to-b from-[#060D1E] via-[#09152F] to-[#030712] text-white border-r border-slate-800/80 shadow-[4px_0_24px_rgba(0,0,0,0.15)]">
+      <aside className="w-64 relative shrink-0 z-20 flex flex-col justify-between overflow-hidden bg-gradient-to-b from-[#060D1E] via-[#09152F] to-[#030712] text-white border-r border-slate-800/80 shadow-[4px_0_24px_rgba(0,0,0,0.15)] dark:shadow-none dark:border-slate-800">
         {/* Seamless Earth Background Atmosphere & Curved Horizon */}
         <div className="absolute inset-0 pointer-events-none select-none overflow-hidden">
           {/* Earth image blended seamlessly into the sidebar */}
@@ -202,7 +205,7 @@ function Workspace() {
                 }}
               />
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <span className="text-white text-xs font-bold drop-shadow">🛰️</span>
+                <Satellite className="w-4 h-4 text-white drop-shadow" />
               </div>
             </div>
             <div className="flex flex-col">
@@ -292,18 +295,20 @@ function Workspace() {
         <header className="h-14 px-6 xl:px-8 flex items-center justify-end gap-3 shrink-0">
           <button
             onClick={() => setActiveNav('help')}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 transition-all cursor-pointer"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-body hover:text-ink hover:bg-card border border-transparent hover:border-line transition-all cursor-pointer"
             title="Help"
           >
-            <HelpCircle className="w-5 h-5 text-slate-500" />
+            <HelpCircle className="w-5 h-5 text-muted" />
           </button>
+
+          <ThemeToggle />
 
           {/* User Profile Avatar with dropdown arrow */}
           <div className="flex items-center gap-1.5 pl-1 cursor-pointer">
             <div className="w-8 h-8 rounded-full bg-[#2563EB] text-white flex items-center justify-center font-bold text-xs shadow-sm">
               RS
             </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+            <ChevronDown className="w-3.5 h-3.5 text-muted" />
           </div>
         </header>
 
@@ -312,10 +317,10 @@ function Workspace() {
           <div>
             {/* Headline Banner */}
             <div className="mb-4">
-              <h1 className="text-2xl xl:text-3xl font-extrabold text-[#0F172A] tracking-tight">
-                Enhance Satellite Imagery <span className="text-[#2563EB]">with AI</span>
+              <h1 className="text-2xl xl:text-3xl font-extrabold text-ink tracking-tight">
+                Enhance Satellite Imagery <span className="text-accent-text">with AI</span>
               </h1>
-              <p className="text-xs xl:text-sm text-slate-500 mt-1">
+              <p className="text-xs xl:text-sm text-muted mt-1">
                 Upload a Sentinel-2 image and get 4× higher resolution (2.5 m) while preserving real-world fidelity.
               </p>
             </div>
@@ -330,24 +335,24 @@ function Workspace() {
                 }}
                 onDragLeave={() => setIsDragging(false)}
                 onDrop={handleDrop}
-                className={`lg:col-span-4 bg-white rounded-2xl border-2 ${
-                  isDragging ? 'border-[#2563EB] bg-blue-50/30' : 'border-dashed border-slate-200'
-                } p-6 flex flex-col items-center justify-center text-center shadow-xs transition-all relative group min-h-[320px]`}
+                className={`lg:col-span-4 bg-card rounded-2xl border-2 ${
+                  isDragging ? 'border-[#2563EB] bg-blue-50/30 dark:bg-blue-500/10' : 'border-dashed border-line-strong'
+                } p-6 flex flex-col items-center justify-center text-center shadow-xs dark:shadow-none transition-all relative group min-h-[320px]`}
               >
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-16 h-16 rounded-full bg-[#EEF2FF] text-[#2563EB] flex items-center justify-center mb-4 cursor-pointer hover:scale-105 transition-transform shadow-xs"
+                  className="w-16 h-16 rounded-full bg-accent-soft text-accent-text flex items-center justify-center mb-4 cursor-pointer hover:scale-105 transition-transform shadow-xs dark:shadow-none"
                 >
                   <Upload className="w-7 h-7 stroke-[2.2]" />
                 </div>
 
-                <h3 className="text-base font-bold text-[#0F172A] mb-1">
+                <h3 className="text-base font-bold text-ink mb-1">
                   Upload Sentinel-2 Image
                 </h3>
-                <p className="text-xs text-slate-500 mb-1">
+                <p className="text-xs text-muted mb-1">
                   Drag and drop a file here, or click to browse
                 </p>
-                <p className="text-[11px] text-slate-400 font-mono mb-5">
+                <p className="text-[11px] text-faint font-mono mb-5">
                   Supports .tif, .jp2, .png (Sentinel-2 L2A)
                 </p>
 
@@ -376,13 +381,13 @@ function Workspace() {
               {/* Comparison Viewer */}
               <div
                 ref={viewerContainerRef}
-                className="lg:col-span-8 bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between"
+                className="lg:col-span-8 bg-card rounded-2xl border border-line p-4 shadow-xs dark:shadow-none flex flex-col justify-between"
               >
                 {/* Header inside viewer card */}
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center justify-between pb-3 border-b border-line-soft">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-slate-400">🗺️</span>
-                    <span className="text-xs font-bold text-slate-800 truncate">
+                    <MapIcon className="w-4 h-4 text-faint shrink-0" />
+                    <span className="text-xs font-bold text-ink truncate">
                       {imageName}
                     </span>
                   </div>
@@ -391,21 +396,21 @@ function Workspace() {
                     <button
                       onClick={() => setZoomLevel((z) => (z >= 2.5 ? 1 : z + 0.5))}
                       title="Zoom"
-                      className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
+                      className="w-7 h-7 rounded-lg border border-line flex items-center justify-center text-muted hover:text-ink hover:bg-sunken transition-colors cursor-pointer"
                     >
                       <ZoomIn className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => setZoomLevel(1)}
                       title="Reset"
-                      className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
+                      className="w-7 h-7 rounded-lg border border-line flex items-center justify-center text-muted hover:text-ink hover:bg-sunken transition-colors cursor-pointer"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={toggleFullscreen}
                       title="Fullscreen"
-                      className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-colors cursor-pointer"
+                      className="w-7 h-7 rounded-lg border border-line flex items-center justify-center text-muted hover:text-ink hover:bg-sunken transition-colors cursor-pointer"
                     >
                       {isFullscreen ? (
                         <Minimize2 className="w-3.5 h-3.5" />
@@ -531,18 +536,18 @@ function Workspace() {
 
                 {/* View Mode Toggle */}
                 <div className="flex items-center justify-between pt-1">
-                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                  <div className="flex items-center gap-1.5 text-xs text-faint">
                     <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
                     <span>Real-time High Fidelity Preview</span>
                   </div>
 
-                  <div className="inline-flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                  <div className="inline-flex bg-sunken p-0.5 rounded-lg border border-line">
                     <button
                       onClick={() => setViewMode('split')}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
                         viewMode === 'split'
-                          ? 'bg-white text-[#2563EB] shadow-2xs'
-                          : 'text-slate-500 hover:text-slate-900'
+                          ? 'bg-raised text-accent-text shadow-2xs dark:shadow-none'
+                          : 'text-muted hover:text-ink'
                       }`}
                     >
                       <SplitSquareHorizontal className="w-3 h-3" />
@@ -552,8 +557,8 @@ function Workspace() {
                       onClick={() => setViewMode('side-by-side')}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
                         viewMode === 'side-by-side'
-                          ? 'bg-white text-[#2563EB] shadow-2xs'
-                          : 'text-slate-500 hover:text-slate-900'
+                          ? 'bg-raised text-accent-text shadow-2xs dark:shadow-none'
+                          : 'text-muted hover:text-ink'
                       }`}
                     >
                       <Columns className="w-3 h-3" />
@@ -581,12 +586,12 @@ function Workspace() {
                 <button
                   onClick={handleSaveImagery}
                   disabled={isLoading}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#EEF2FF] hover:bg-[#E0E7FF] text-[#2563EB] text-xs font-semibold border border-[#C7D2FE]/60 transition-all active:scale-98 shadow-2xs cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent-soft hover:bg-accent-soft-hover text-accent-text text-xs font-semibold border border-accent-line disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-98 shadow-2xs dark:shadow-none cursor-pointer"
                 >
                   {isSaved ? (
                     <>
-                      <Check className="w-4 h-4 text-emerald-600" />
-                      <span className="text-emerald-700">Downloaded</span>
+                      <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span className="text-emerald-700 dark:text-emerald-400">Downloaded</span>
                     </>
                   ) : (
                     <>
@@ -603,12 +608,12 @@ function Workspace() {
           {recentItems.length > 0 && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-3.5">
-                <h2 className="text-base font-bold text-[#0F172A]">
+                <h2 className="text-base font-bold text-ink">
                   Recent Activity
                 </h2>
                 <button
                   onClick={() => setActiveNav('results')}
-                  className="text-xs font-semibold text-[#2563EB] hover:text-[#1D4ED8] flex items-center gap-1 transition-colors cursor-pointer"
+                  className="text-xs font-semibold text-accent-text hover:text-accent-text-hover flex items-center gap-1 transition-colors cursor-pointer"
                 >
                   <span>View All</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -621,25 +626,25 @@ function Workspace() {
                   <div
                     key={item.id}
                     onClick={() => handleSelectRecent(item)}
-                    className="group bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                    className="group bg-card rounded-xl border border-line overflow-hidden shadow-2xs dark:shadow-none hover:shadow-md dark:hover:shadow-none dark:hover:border-line-strong transition-all cursor-pointer flex flex-col justify-between"
                   >
-                    <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
+                    <div className="relative aspect-[16/10] overflow-hidden bg-sunken">
                       <img
                         src={item.imgUrl}
                         alt={item.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
-                      <div className="absolute top-2 right-2 bg-amber-50/90 text-amber-900 border border-amber-200/60 font-bold text-[10px] px-1.5 py-0.5 rounded shadow-2xs backdrop-blur-xs">
+                      <div className="absolute top-2 right-2 bg-amber-50/90 text-amber-900 border border-amber-200/60 dark:bg-amber-400/15 dark:text-amber-200 dark:border-amber-300/20 font-bold text-[10px] px-1.5 py-0.5 rounded shadow-2xs dark:shadow-none backdrop-blur-xs">
                         {item.badge}
                       </div>
                     </div>
 
                     <div className="p-3 flex items-center justify-between">
                       <div>
-                        <div className="text-xs font-bold text-slate-800 group-hover:text-[#2563EB] transition-colors truncate max-w-[150px]">
+                        <div className="text-xs font-bold text-ink group-hover:text-accent-text transition-colors truncate max-w-[150px]">
                           {item.title}
                         </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
+                        <div className="text-[11px] text-faint mt-0.5">
                           {item.timeAgo}
                         </div>
                       </div>
@@ -652,7 +657,7 @@ function Workspace() {
                           a.download = `${item.id}_enhanced.png`;
                           a.click();
                         }}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 transition-colors"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-faint hover:text-accent-text hover:bg-accent-soft transition-colors"
                         title="Download image"
                       >
                         <Download className="w-3.5 h-3.5" />

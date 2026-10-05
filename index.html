@@ -1,6 +1,22 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      (function () {
+        var dark = false;
+        try {
+          var t = localStorage.getItem('resolve:theme');
+          dark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        } catch (e) {
+          try { dark = window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e2) {}
+        }
+        if (dark) document.documentElement.classList.add('dark');
+      })();
+    </script>
+    <style>
+      html { background: #f4f7fc; }
+      html.dark { background: #0b1120; }
+    </style>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>resolve | Satellite Imagery Enhancer</title>
@@ -13,7 +29,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-[#F9F9FF] text-[#151B29] antialiased selection:bg-[#1254EB]/20 selection:text-[#003EBB]">
+  <body class="bg-page text-body antialiased selection:bg-[#1254EB]/20 selection:text-accent-text">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

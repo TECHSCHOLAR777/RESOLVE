@@ -24,15 +24,15 @@ export default function LiveTile({ outputSrc, baseSrc, onBaseError, onBaseSize, 
 
   return (
     <div
-      className="relative mx-auto overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+      className="relative mx-auto overflow-hidden rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900"
       style={{ aspectRatio: String(aspect), width: `min(100%, calc(56vh * ${aspect}))` }}
     >
       {/* Skeleton while no imagery exists yet */}
       {!baseSrc && (
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200">
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200 dark:from-slate-800 dark:via-slate-900 dark:to-slate-800">
           {!failed && (
             <motion.div
-              className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/60 to-transparent"
+              className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/60 to-transparent dark:via-white/10"
               initial={{ left: '-35%' }}
               animate={{ left: '105%' }}
               transition={{ duration: 2.2, ease: 'linear', repeat: Infinity }}

@@ -38,7 +38,7 @@ interface Props {
 
 export default function StageList({ views, ctx, held, failed }: Props) {
   return (
-    <ol className="divide-y divide-slate-100">
+    <ol className="divide-y divide-line-soft">
       {STAGES.map((stage, i) => {
         const v = views[i];
         const Icon = stage.icon;
@@ -56,24 +56,24 @@ export default function StageList({ views, ctx, held, failed }: Props) {
             <div
               className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors duration-200 ${
                 errored
-                  ? 'border-red-200 bg-red-50 text-red-600'
+                  ? 'border-red-200 bg-red-50 text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400'
                   : running
-                    ? 'border-blue-200 bg-blue-50 text-[#2563EB]'
+                    ? 'border-blue-200 bg-blue-50 text-accent-text dark:border-blue-400/30 dark:bg-blue-500/15'
                     : done
-                      ? 'border-slate-200 bg-white text-slate-600'
-                      : 'border-slate-200 bg-slate-50 text-slate-400'
+                      ? 'border-line bg-card text-body'
+                      : 'border-line bg-sunken text-faint'
               }`}
             >
               <Icon className="h-4 w-4" strokeWidth={1.75} />
             </div>
 
             <div className="min-w-0">
-              <div className={`text-[13px] font-semibold leading-5 ${running ? 'text-slate-900' : 'text-slate-700'}`}>{stage.title}</div>
-              <div className="text-xs leading-[18px] text-slate-500">
+              <div className={`text-[13px] font-semibold leading-5 ${running ? 'text-ink' : 'text-body'}`}>{stage.title}</div>
+              <div className="text-xs leading-[18px] text-muted">
                 {done && stage.doneNote ? `${stageDescription(i, ctx)}, ${stage.doneNote}` : stageDescription(i, ctx)}
               </div>
               {running && (
-                <div className="mt-1.5 h-[3px] overflow-hidden rounded-full bg-slate-100">
+                <div className="mt-1.5 h-[3px] overflow-hidden rounded-full bg-sunken">
                   {waiting ? (
                     <div className="relative h-full w-full overflow-hidden">
                       <motion.div
@@ -88,24 +88,24 @@ export default function StageList({ views, ctx, held, failed }: Props) {
                   )}
                 </div>
               )}
-              {waiting && <div className="mt-1 text-[11px] text-slate-500">Waiting for compute</div>}
+              {waiting && <div className="mt-1 text-[11px] text-muted">Waiting for compute</div>}
             </div>
 
             <div className="flex h-5 items-center justify-end gap-1.5 pt-0.5 text-[11px]">
               {errored ? (
                 <>
-                  <AlertCircle className="h-3.5 w-3.5 text-red-600" />
-                  <span className="text-red-600">Failed</span>
+                  <AlertCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                  <span className="text-red-600 dark:text-red-400">Failed</span>
                 </>
               ) : done ? (
                 <>
-                  <Check className="h-3.5 w-3.5 text-[#2563EB]" strokeWidth={2.5} />
-                  <span className="font-mono tabular-nums text-slate-500">{v.durationMs} ms</span>
+                  <Check className="h-3.5 w-3.5 text-accent-text" strokeWidth={2.5} />
+                  <span className="font-mono tabular-nums text-muted">{v.durationMs} ms</span>
                 </>
               ) : running ? (
-                <span className="font-mono tabular-nums text-[#2563EB]">{waiting ? 'waiting' : `${Math.round(v.progress * 100)}%`}</span>
+                <span className="font-mono tabular-nums text-accent-text">{waiting ? 'waiting' : `${Math.round(v.progress * 100)}%`}</span>
               ) : (
-                <span className="text-slate-400">Queued</span>
+                <span className="text-faint">Queued</span>
               )}
             </div>
           </li>
