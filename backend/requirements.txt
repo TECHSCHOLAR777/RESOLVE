@@ -12,3 +12,5 @@ pillow
 fastapi
 uvicorn
 python-multipart
+pystac-client
+planetary-computer

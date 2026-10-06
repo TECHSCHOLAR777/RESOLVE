@@ -281,7 +281,8 @@ def test_alphaearth_unit_helpers():
     out = ae._dequantise(np.array([[-128, 127, -127, 0]], "int8"))
     assert np.isnan(out[0, 0]) and out[0, 1] == pytest.approx((127 / 127.5) ** 2) and out[0, 2] < 0 and out[0, 3] == 0
     idx = ae._index()
-    assert idx["files"]["2024/43N"] and idx["grid"] == {"west0": 8480, "size": 81920}
+    assert idx["blocks"]["2024/43N"] and idx["grid"]["west0"] == 8480 and idx["grid"]["size"] == 81920
+    assert len(ae.cells(2024, "43N")) > 100 and ae.cells(2024, "99N") is None
 
 
 def test_alphaearth_network_failure_does_not_break_request(monkeypatch, tmp_path):
@@ -338,3 +339,201 @@ def test_alphaearth_live_window_read(monkeypatch, tmp_path):
     assert res["year"] == 2024 and emb.shape == (3, 256, 256)
     assert np.nanmax(np.nansum(emb ** 2, 0)) <= 1.01  # 3 dims of a unit-length 64-d vector
     assert np.isnan(emb).mean() < 0.01 and emb.std() > 0.01
+
+
+GLOBAL_POINTS = {  # name: (lat, lon, expected UTM zone), from the bundled global index (offline)
+    "Delhi": (28.61, 77.21, "43N"), "Paris": (48.8566, 2.3522, "31N"), "Nairobi": (-1.2921, 36.8219, "37S"),
+    "Sao Paulo": (-23.55, -46.63, "23S"), "Sydney": (-33.87, 151.21, "56S"), "Anchorage": (61.2, -149.9, "6N"),
+    "Quito": (-0.18, -78.47, "17S"), "Cape Town": (-33.92, 18.42, "34S"),
+}
+
+
+@pytest.mark.parametrize("name", GLOBAL_POINTS)
+def test_alphaearth_global_index_lookup(name):
+    from app import alphaearth as ae
+    lat, lon, zone = GLOBAL_POINTS[name]
+    for year in (2017, 2024, 2025):
+        url = ae.locate(lat, lon, year)
+        assert url and f"/{year}/{zone}/" in url and url.endswith(".tiff")
+    assert ae.locate(0.0, -160.0, 2024) is None  # open Pacific, no file
+
+
+def test_alphaearth_index_is_global_and_small():
+    from app import alphaearth as ae
+    assert ae.INDEX_PATH.stat().st_size < 3_000_000
+    zones = {k.split("/")[1] for k in ae._index()["blocks"]}
+    assert len(zones) == 120
+    assert sum(len(ae.cells(2024, z) or {}) for z in zones) > 30000
+
+
+# ---- area super-resolution -------------------------------------------------------------------------------
+
+AREA_BAD = [
+    ({"lat": 90, "lon": 0}, "lat"), ({"lat": 0, "lon": 181}, "lon"), ({"lat": 10, "lon": 10, "size_px": 300}, "size_px"),
+    ({"lat": 10, "lon": 10, "date_from": "2025-05-01", "date_to": "2025-04-01"}, "date_from"),
+    ({"lat": 10, "lon": 10, "date_to": "2999-01-01"}, "future"), ({"lat": 10, "lon": 10, "date_from": "yesterday"}, "date_from"),
+    ({"lat": 10, "lon": 10, "max_cloud": 150}, "max_cloud"), ({"lon": 10}, "lat"),
+]
+
+
+@pytest.mark.parametrize("body,word", AREA_BAD)
+def test_area_validation_errors(body, word):
+    r = client.post("/api/area/superres", json=body)
+    assert r.status_code == 422 and isinstance(r.json()["detail"], str) and word in r.json()["detail"]
+
+
+class FakeAsset:
+    def __init__(self, href, shape, transform):
+        self.href, self.extra_fields = href, {"proj:shape": shape, "proj:transform": transform}
+
+
+class FakeItem:
+    def __init__(self, id_, day, cloud, mgrs="43RGM"):
+        from datetime import datetime, timezone
+        self.id = id_
+        self.datetime = datetime(2025, 3, day, 5, 30, tzinfo=timezone.utc)
+        self.properties = {"eo:cloud_cover": cloud, "s2:processing_baseline": "05.12", "proj:code": "EPSG:32643",
+                           "platform": "Sentinel-2B", "s2:mgrs_tile": mgrs}
+        t10, t20 = [10.0, 0, 660000.0, 0, -10.0, 3260040.0], [20.0, 0, 660000.0, 0, -20.0, 3260040.0]
+        self.assets = {b: FakeAsset(f"fake/{id_}/{b}", [10980, 10980], t10) for b in ("B04", "B03", "B02", "B08")}
+        self.assets["SCL"] = FakeAsset(f"fake/{id_}/SCL", [5490, 5490], t20)
+
+
+def install_fake_stac(monkeypatch, items, cloudy=()):
+    """Replace the catalogue search and the window reader. Items named in `cloudy` return SCL cloud everywhere."""
+    from app import area
+    calls = []
+    monkeypatch.setattr(area, "_search", lambda *a, **k: (calls.append(a), items)[1])
+
+    def fake_read(href, col0, row0, size, scl):
+        item_id = href.split("/")[-2]
+        if scl:
+            return np.full((size, size), 9 if item_id in cloudy else 4, "uint8")
+        yy, xx = np.mgrid[:size, :size]
+        base = 1000 + 300 * (np.sin(xx / 7.0) + np.cos(yy / 9.0)) + 200 * ((xx // 16 + yy // 16) % 2)
+        return (base + (2000 if href.endswith("B08") else 0)).astype("uint16")
+
+    monkeypatch.setattr(area, "_read_band", fake_read)
+    return calls
+
+
+def check_area_body(body, size):
+    assert body["input"]["width"] == size * 4 and body["stages"][0]["id"] == "search" and body["stages"][0]["ms"] >= 0
+    assert [s["id"] for s in body["stages"][1:3]] == ["ingest", "normalise"]
+    ss = body["source_scene"]
+    assert set(ss) >= {"item_id", "date", "satellite", "tile_id", "cloud_cover", "window_cloud_fraction",
+                       "processing_baseline", "relaxed_cloud"}
+    assert body["scene"]["source_item"] == ss["item_id"] and body["scene"]["date"] == ss["date"]
+    assert body["scene"]["satellite"] == ss["satellite"] and body["scene"]["tile_id"] == ss["tile_id"]
+    assert {l["id"] for l in body["layers"]} >= {"rgb", "ndvi", "uncertainty", "confidence"}
+    r = client.get(f"/api/results/{body['id']}/input.tif")
+    assert r.status_code == 200
+    with MemoryFile(r.content) as mem, mem.open() as src:
+        assert src.count == 4 and src.width == src.height == size and src.crs.to_epsg() in (32631, 32643)
+        return src.read()
+
+
+def test_area_superres_mocked_stac(monkeypatch):
+    items = [FakeItem("S2B_MSIL2A_20250310T053000_R062_T43RGM_20250310T080000", 10, 3.0),
+             FakeItem("S2A_MSIL2A_20250320T053000_R062_T43RGM_20250320T080000", 20, 8.0)]
+    calls = install_fake_stac(monkeypatch, items)
+    r = client.post("/api/area/superres", json={"lat": 28.9, "lon": 77.2, "size_px": 256, "name": "Test"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    inp = check_area_body(body, 256)
+    assert body["name"] == "Test" and abs(body["scene"]["center"]["lat"] - 28.9) < 0.01
+    ss = body["source_scene"]
+    assert ss["item_id"].startswith("S2A_MSIL2A_20250320") and ss["date"] == "2025-03-20"  # latest first
+    assert ss["satellite"] == "Sentinel-2B" and ss["tile_id"] == "T43RGM" and ss["processing_baseline"] == "05.12"
+    assert ss["cloud_cover"] == 8.0 and ss["window_cloud_fraction"] == 0 and ss["relaxed_cloud"] is False
+    assert inp.max() < 1.0 and 0.0 < inp[0].mean() < 0.3  # offset of 1000 DN removed, then / 10 000
+    assert calls[0][4] == 20 and calls[0][5] is True  # max_cloud, latest mode
+
+
+def test_area_range_prefers_lowest_cloud_and_skips_cloudy_windows(monkeypatch):
+    items = [FakeItem("S2B_MSIL2A_20250305T053000_R062_T43RGM_x", 5, 2.0),
+             FakeItem("S2B_MSIL2A_20250312T053000_R062_T43RGM_x", 12, 6.0),
+             FakeItem("S2B_MSIL2A_20250322T053000_R062_T43RGM_x", 22, 1.0)]
+    install_fake_stac(monkeypatch, items, cloudy=("S2B_MSIL2A_20250322T053000_R062_T43RGM_x",))
+    r = client.post("/api/area/superres", json={"lat": 28.9, "lon": 77.2, "date_from": "2025-03-01", "date_to": "2025-03-31"})
+    assert r.status_code == 200, r.text
+    assert r.json()["source_scene"]["date"] == "2025-03-05"  # lowest cloud (22nd) was cloudy in the window, next lowest wins
+
+
+def test_area_relaxed_cloud_is_flagged(monkeypatch):
+    install_fake_stac(monkeypatch, [FakeItem("S2B_MSIL2A_20250310T053000_R062_T43RGM_x", 10, 45.0)])
+    r = client.post("/api/area/superres", json={"lat": 28.9, "lon": 77.2, "max_cloud": 10})
+    assert r.status_code == 200 and r.json()["source_scene"]["relaxed_cloud"] is True and r.json()["name"] == "28.9000, 77.2000"
+    assert any("45" in n for n in r.json()["notes"])
+
+
+NO_SCENE = "No clear Sentinel-2 scene found for this area and date range. Try a wider date range or a higher cloud limit."
+
+
+def test_area_no_scene_is_404(monkeypatch):
+    install_fake_stac(monkeypatch, [])
+    r = client.post("/api/area/superres", json={"lat": 28.9, "lon": 77.2})
+    assert r.status_code == 404 and r.json() == {"detail": NO_SCENE}
+
+
+def test_area_all_windows_cloudy_is_404(monkeypatch):
+    item = FakeItem("S2B_MSIL2A_20250310T053000_R062_T43RGM_x", 10, 3.0)
+    install_fake_stac(monkeypatch, [item], cloudy=(item.id,))
+    r = client.post("/api/area/superres", json={"lat": 28.9, "lon": 77.2})
+    assert r.status_code == 404 and r.json() == {"detail": NO_SCENE}
+
+
+def test_area_tile_not_containing_square_is_skipped(monkeypatch):
+    install_fake_stac(monkeypatch, [FakeItem("S2B_MSIL2A_20250310T053000_R062_T43RGM_x", 10, 3.0)])
+    r = client.post("/api/area/superres", json={"lat": 10.0, "lon": 77.2})  # far south of the fake tile
+    assert r.status_code == 404
+
+
+def test_area_upstream_failure_is_503(monkeypatch):
+    from app import area
+
+    def boom(*a, **k):
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(area, "_search", boom)
+    r = client.post("/api/area/superres", json={"lat": 28.9, "lon": 77.2})
+    assert r.status_code == 503 and r.json()["detail"]
+
+    install_fake_stac(monkeypatch, [FakeItem("S2B_MSIL2A_20250310T053000_R062_T43RGM_x", 10, 3.0)])
+    monkeypatch.setattr(area, "_read_band", boom)
+    r = client.post("/api/area/superres", json={"lat": 28.9, "lon": 77.2})
+    assert r.status_code == 503 and r.json()["detail"]
+
+
+def test_area_hard_timeout_is_503(monkeypatch):
+    import time as _t
+    from app import area
+    monkeypatch.setattr(area, "_search", lambda *a, **k: _t.sleep(3))
+    monkeypatch.setenv("RESOLVE_AREA_TIMEOUT_S", "0.5")
+    t = _t.time()
+    r = client.post("/api/area/superres", json={"lat": 28.9, "lon": 77.2, "size_px": 256})
+    assert r.status_code == 503 and _t.time() - t < 2.5
+
+
+def _pc_online() -> bool:
+    import socket
+    try:
+        socket.create_connection(("planetarycomputer.microsoft.com", 443), timeout=3).close()
+        return True
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(not _pc_online(), reason="needs network access to the Planetary Computer")
+def test_area_live_paris_256(monkeypatch):
+    monkeypatch.setenv("RESOLVE_AREA_TIMEOUT_S", "60")
+    r = client.post("/api/area/superres", json={"lat": 48.8566, "lon": 2.3522, "size_px": 256, "max_cloud": 40,
+                                                 "date_from": "2025-04-01", "date_to": "2025-09-30"})
+    if r.status_code == 503:
+        pytest.skip(f"Planetary Computer not reachable right now: {r.json()['detail']}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    inp = check_area_body(body, 256)
+    ss = body["source_scene"]
+    assert ss["tile_id"].startswith("T31") and "2025-04-01" <= ss["date"] <= "2025-09-30" and ss["window_cloud_fraction"] <= 0.1
+    assert 0.0 < inp.mean() < 1.0 and body["scene"]["center"]["lat"] == pytest.approx(48.8566, abs=0.01)

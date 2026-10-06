@@ -13,15 +13,20 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from datetime import datetime, timezone
+
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel
 from PIL import Image
 from rasterio.errors import RasterioIOError
 from rasterio.io import MemoryFile
 from rasterio.warp import transform_bounds
 
-from . import alphaearth, layers as L
+from . import alphaearth, area, layers as L
 from .lock import lock as measurement_lock
 from .model import MODEL_NAME, SCALE, STRIDE, TILE, get_model, padded_size, super_resolve_features, super_resolve_tta
 
@@ -231,7 +236,7 @@ def prewarm_alphaearth():
     threading.Thread(target=work, daemon=True).start()
 
 
-def run_pipeline(data: bytes, band_order: str, fallback: dict | None = None) -> dict:
+def run_pipeline(data: bytes, band_order: str, fallback: dict | None = None, input_tif: bytes | None = None) -> dict:
     stages: dict[str, int] = {}
     clock = time.perf_counter
 
@@ -267,6 +272,8 @@ def run_pipeline(data: bytes, band_order: str, fallback: dict | None = None) -> 
     d.mkdir()
     ld = d / "layers"
     ld.mkdir()
+    if input_tif is not None:
+        (d / "input.tif").write_bytes(input_tif)
     (ld / "size.json").write_text(json.dumps([H, W]))
     writer = pool.submit(write_outputs, d, input_png, out, refl, meta)  # file output overlaps the TTA passes
 
@@ -407,6 +414,85 @@ def sample_superres(sample_id: str):
     return run_pipeline((SAMPLES_DIR / f"{sample_id}.tif").read_bytes(), "B4,B3,B2,B8", sample)
 
 
+class AreaRequest(BaseModel):
+    lat: float
+    lon: float
+    size_px: int = 256
+    date_from: str | None = None
+    date_to: str | None = None
+    max_cloud: float = 20
+    name: str | None = None
+
+
+def _parse_day(text: str | None, field: str):
+    if text is None:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(422, f"{field} must be a date in YYYY-MM-DD format")
+
+
+def validate_area(req: AreaRequest):
+    if not -84 <= req.lat <= 84:
+        raise HTTPException(422, "lat must be between -84 and 84 (Sentinel-2 coverage)")
+    if not -180 <= req.lon <= 180:
+        raise HTTPException(422, "lon must be between -180 and 180")
+    if req.size_px not in (256, 512):
+        raise HTTPException(422, "size_px must be 256 or 512")
+    if not 0 <= req.max_cloud <= 100:
+        raise HTTPException(422, "max_cloud must be between 0 and 100")
+    d_from, d_to = _parse_day(req.date_from, "date_from"), _parse_day(req.date_to, "date_to")
+    today = datetime.now(timezone.utc).date()
+    if d_from and d_to and d_from > d_to:
+        raise HTTPException(422, "date_from must not be after date_to")
+    if (d_from and d_from > today) or (d_to and d_to > today):
+        raise HTTPException(422, "The date range must not be in the future")
+    return d_from, d_to
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    """A readable string for the area endpoint; other routes keep FastAPI's default list."""
+    if request.url.path != "/api/area/superres":
+        return await request_validation_exception_handler(request, exc)
+    first = exc.errors()[0]
+    where = ".".join(str(p) for p in first["loc"] if p != "body") or "body"
+    return JSONResponse({"detail": f"Invalid {where}: {first['msg']}"}, status_code=422)
+
+
+@app.post("/api/area/superres")
+def area_superres(req: AreaRequest):
+    d_from, d_to = validate_area(req)
+    t0 = time.perf_counter()
+    try:
+        sc = area.search_scene(req.lat, req.lon, req.size_px, d_from, d_to, req.max_cloud)
+    except area.AreaError as e:
+        raise HTTPException(e.status, e.detail)
+    except Exception as e:
+        raise HTTPException(503, f"Sentinel-2 search failed ({type(e).__name__}). Try again in a moment.")
+    search_ms = round((time.perf_counter() - t0) * 1000)
+    with MemoryFile() as mem:
+        with mem.open(driver="GTiff", count=4, height=req.size_px, width=req.size_px, dtype="float32", crs=sc.crs,
+                      transform=sc.transform, compress="deflate", predictor=3) as dst:
+            dst.write(sc.refl)
+            dst.update_tags(band_order="B4,B3,B2,B8", processing_baseline=sc.processing_baseline or "",
+                            reflectance_offset_applied=str(sc.offset_applied_dn), source_item=sc.item_id)
+        tif = mem.read()
+    body = run_pipeline(tif, "B4,B3,B2,B8", {"date": sc.date, "source_item": sc.item_id}, input_tif=tif)
+    body["scene"]["satellite"] = sc.satellite or body["scene"]["satellite"]
+    body["source_scene"] = {"item_id": sc.item_id, "date": sc.date, "satellite": body["scene"]["satellite"],
+                            "tile_id": sc.tile_id or body["scene"]["tile_id"], "cloud_cover": sc.cloud_cover,
+                            "window_cloud_fraction": sc.window_cloud_fraction,
+                            "processing_baseline": sc.processing_baseline, "relaxed_cloud": sc.relaxed_cloud}
+    body["name"] = (req.name or "").strip() or f"{req.lat:.4f}, {req.lon:.4f}"
+    off = (f"Processing baseline {sc.processing_baseline}: subtracted the L2A offset of 1000 DN, then divided by 10 000."
+           if sc.offset_applied_dn else "Processing baseline below 04.00: no L2A offset; divided by 10 000.")
+    body["notes"] = [f"Sentinel-2 window read from Microsoft Planetary Computer ({sc.item_id}); {off}"] + sc.notes + body["notes"]
+    body["stages"].insert(0, {"id": "search", "ms": search_ms})
+    return body
+
+
 @app.get("/api/samples/{sample_id}/input.png")
 def sample_input_png(sample_id: str):
     find_sample(sample_id)
@@ -415,13 +501,13 @@ def sample_input_png(sample_id: str):
 
 @app.get("/api/results/{result_id}/{name}")
 def result_file(result_id: str, name: str):
-    media = {"output.tif": "image/tiff", "input.png": "image/png", "output.png": "image/png"}
+    media = {"output.tif": "image/tiff", "input.tif": "image/tiff", "input.png": "image/png", "output.png": "image/png"}
     if not re.fullmatch(r"[0-9a-f]{32}", result_id) or name not in media:
         raise HTTPException(404, "Not found")
     path = RESULTS_DIR / result_id / name
     if not path.exists():
         raise HTTPException(404, "Result not found (results are kept only for the most recent runs)")
-    return FileResponse(path, media_type=media[name], filename=name if name == "output.tif" else None)
+    return FileResponse(path, media_type=media[name], filename=name if name.endswith(".tif") else None)
 
 
 @app.get("/api/results/{result_id}/layers/{layer_id}.png")
