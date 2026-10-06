@@ -37,7 +37,9 @@ interface RunContextValue {
   finishRun: (completed?: boolean, to?: string) => void;
   exitPath: () => string;
   /** Open a stored run: current result, a sample re-run, or an upload rebuilt from its URLs. Resolves false when the images are gone. */
-  openEntry: (entry: HistoryEntry) => Promise<boolean>;
+  openEntry: (entry: HistoryEntry, to?: string) => Promise<boolean>;
+  /** Where a finished run should return to (default '/'); resets after being read. */
+  consumeReturnPath: () => string;
   /** True once after a finished run returned to the workspace, so it can open on the viewer. */
   consumeFromRun: () => boolean;
 }
@@ -72,6 +74,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const launch = useCallback(
     (label: string, job: () => Promise<SuperresResult>, extra: { sampleId?: string; area?: AreaParams; dims: { w: number; h: number } | null }) => {
       const seq = ++seqRef.current;
+      returnRef.current = '/';
       setInitializing(false);
       setRun({ seq, label, job, startedAt: Date.now(), status: 'pending', result: null, error: null, ...extra });
       navigate('/run');
@@ -137,6 +140,12 @@ export function RunProvider({ children }: { children: ReactNode }) {
   }, [launch]);
 
   const fromRunRef = useRef(false);
+  const returnRef = useRef('/');
+  const consumeReturnPath = useCallback(() => {
+    const v = returnRef.current;
+    returnRef.current = '/';
+    return v;
+  }, []);
   const exitRef = useRef('/');
   const finishRun = useCallback((completed = false, to = '/') => {
     fromRunRef.current = completed;
@@ -152,10 +161,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
 
   const resultId = result?.id;
   const openEntry = useCallback(
-    async (entry: HistoryEntry): Promise<boolean> => {
+    async (entry: HistoryEntry, to = '/'): Promise<boolean> => {
       if (entry.id === resultId) {
         fromRunRef.current = true;
-        navigate('/');
+        navigate(to);
         return true;
       }
       if (entry.area) {
@@ -168,10 +177,12 @@ export function RunProvider({ children }: { children: ReactNode }) {
         });
         if (!probe) {
           startArea(entry.area);
+          returnRef.current = to;
           return true;
         }
       } else if (entry.kind === 'sample' && entry.sampleId) {
         startSample({ id: entry.sampleId, name: samples.find((s) => s.id === entry.sampleId)?.name ?? entry.name });
+        returnRef.current = to;
         return true;
       }
       // Uploads cannot be re-run without the file, so show the stored result if the server still has it.
@@ -194,7 +205,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       };
       commit(rebuilt, entry.name);
       fromRunRef.current = true;
-      navigate('/');
+      navigate(to);
       return true;
     },
     [resultId, startSample, startArea, samples, commit, navigate],
@@ -240,6 +251,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       finishRun,
       exitPath,
       consumeFromRun,
+      consumeReturnPath,
       openEntry,
     }),
     [run, result, imageName, samples, initializing, startSample, startUpload, startArea, retry, finishRun, exitPath, consumeFromRun, openEntry],

@@ -4,7 +4,6 @@ import {
   Maximize2,
   Minimize2,
   Map as MapIcon,
-  PanelRight,
   RotateCcw,
   Sparkle,
   SplitSquareHorizontal,
@@ -20,17 +19,21 @@ interface ViewerProps {
   result: SuperresResult | null;
   imageName: string;
   initializing: boolean;
-  /** When set, a header button opens the inspector (used where it is not shown inline). */
-  onOpenInspector?: () => void;
-  /** Reports the layer currently shown ('rgb' when none is blended over the output). */
+  /** Selected output layer. Passing it together with `onLayerChange` turns on the layer switcher and legend. */
+  layerId?: string;
   onLayerChange?: (id: string) => void;
 }
 
 const FALLBACK = '/assets/punjab.jpg';
 const iconBtn =
   'flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-line text-muted transition-colors hover:bg-sunken hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 sm:h-7 sm:w-7';
+const cornerTag =
+  'pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-medium text-white shadow-sm backdrop-blur-md sm:left-2.5 sm:top-2.5 sm:text-[11px]';
+const bottomTag =
+  'pointer-events-none absolute bottom-2.5 z-10 hidden rounded bg-black/65 px-2 py-0.5 font-mono text-[10px] text-slate-200 shadow-sm backdrop-blur-md sm:block';
+const imgFill = 'absolute inset-0 h-full w-full object-cover transition-transform duration-100';
 
-export default function Viewer({ result, imageName, initializing, onOpenInspector, onLayerChange }: ViewerProps) {
+export default function Viewer({ result, imageName, initializing, layerId, onLayerChange }: ViewerProps) {
   const phone = useIsPhone();
   const { settings } = useSettings();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,25 +42,22 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
   const [splitPos, setSplitPos] = useState(50);
   const [dragging, setDragging] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [layerId, setLayerId] = useState(settings.defaultLayer);
   const [opacity, setOpacity] = useState(1);
 
   const inputSrc = result ? absUrl(result.input.png) : FALLBACK;
   const outputSrc = result ? absUrl(result.output.png) : FALLBACK;
 
   // Layers exist only on newer backends; without them the switcher is hidden and the output stays RGB.
-  const layers = result?.layers && result.layers.length > 0 ? result.layers : null;
+  const layers = onLayerChange && result?.layers && result.layers.length > 0 ? result.layers : null;
   const effective = layers ? (layers.find((l) => l.id === layerId) ?? layers.find((l) => l.id === 'rgb') ?? layers[0]) : null;
   const activeLayer = effective && effective.id !== 'rgb' ? effective : null;
-  const reportedId = activeLayer ? activeLayer.id : 'rgb';
-  useEffect(() => onLayerChange?.(reportedId), [onLayerChange, reportedId]);
   const labels = settings.showCornerLabels;
 
-  // Tile shape drives the layout: clearly portrait tiles go side by side, everything else stacks.
+  // Tile shape drives the layout (see .tiles in index.css): tall scenes pair up early, very wide ones later.
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   const dims = result ? { w: result.input.width, h: result.input.height } : natural;
   const aspect = dims && dims.w > 0 && dims.h > 0 ? dims.w / dims.h : 1;
-  const sideBySide = viewMode === 'side-by-side' && aspect < 0.8 && !phone;
+  const shape = aspect < 0.8 ? 'tiles-tall' : aspect > 1.8 ? 'tiles-wide' : '';
   const onNatural = (e: SyntheticEvent<HTMLImageElement>) => {
     const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
     if (w > 0 && h > 0) setNatural({ w, h });
@@ -101,45 +101,53 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
   const zoomBy = useCallback((d: number) => setZoom((z) => Math.min(4, Math.max(1, +(z + d).toFixed(2)))), []);
   const zoomStyle: CSSProperties = { transform: `scale(${zoom})` };
   const pixelated: CSSProperties = { ...zoomStyle, imageRendering: 'pixelated' };
+  const frameVars = { '--a': aspect } as CSSProperties;
 
-  /** The OUTPUT panel: RGB with the selected layer blended over it. */
+  const outputName = activeLayer ? activeLayer.name : 'Enhanced output';
+  const inputTag = (
+    <div className={`${cornerTag} border border-white/10 bg-black/65`}>
+      <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400" />
+      <span className="truncate">
+        <span className="sm:hidden">Input 10 m</span>
+        <span className="hidden sm:inline">Original input 10 m</span>
+      </span>
+    </div>
+  );
+  const outputTag = (
+    <div className={`${cornerTag} border border-white/10 bg-[#2563EB]/90 font-semibold`}>
+      <Sparkle className="h-3 w-3 shrink-0 fill-white" />
+      <span className="truncate">
+        <span className="sm:hidden">{activeLayer ? activeLayer.name : 'Output 2.5 m'}</span>
+        <span className="hidden sm:inline">{outputName} 2.5 m</span>
+      </span>
+    </div>
+  );
+
+  /** The OUTPUT image: RGB with the selected layer blended over it. */
   const outputImages = (
     <>
-      <img
-        src={outputSrc}
-        alt="Enhanced satellite scene"
-        onLoad={onNatural}
-        draggable={false}
-        className="absolute inset-0 h-full w-full object-cover transition-transform duration-100"
-        style={zoomStyle}
-      />
+      <img src={outputSrc} alt="Enhanced satellite scene" onLoad={onNatural} draggable={false} className={imgFill} style={zoomStyle} />
       {activeLayer && (
         <img
           key={activeLayer.id}
           src={absUrl(activeLayer.url)}
           alt={`${activeLayer.name} layer`}
           draggable={false}
-          className="absolute inset-0 h-full w-full object-cover transition-transform duration-100"
+          className={imgFill}
           style={{ ...zoomStyle, opacity }}
         />
       )}
     </>
   );
 
-  const panelBase = 'relative overflow-hidden rounded-lg bg-slate-900';
-  const panelStyle = (width: string): CSSProperties => ({ aspectRatio: String(aspect), width });
-  const splitWidth = `min(100%, calc(52vh * ${aspect}))`;
-  const rowWidth = `min(calc(50% - 4px), calc(62vh * ${aspect}))`;
-  const colWidth = `min(100%, calc(38vh * ${aspect}))`;
-
   return (
     <div
       ref={containerRef}
       className="flex flex-col gap-3 overflow-y-auto rounded-2xl border border-line bg-card p-3 shadow-xs sm:p-4 dark:shadow-none"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-line-soft pb-3">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <MapIcon className="h-4 w-4 shrink-0 text-faint" />
+          <MapIcon className="h-4 w-4 shrink-0 text-faint" aria-hidden />
           <span className="truncate text-xs font-bold text-ink">{imageName}</span>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -155,20 +163,10 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
           <button type="button" onClick={toggleFullscreen} title="Fullscreen" aria-label="Fullscreen" className={iconBtn}>
             {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
           </button>
-          {onOpenInspector && (
-            <button
-              type="button"
-              onClick={onOpenInspector}
-              className="ml-1 flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-accent-line bg-accent-soft px-2.5 text-[11px] font-semibold text-accent-text transition-colors hover:bg-accent-soft-hover"
-            >
-              <PanelRight className="h-3.5 w-3.5" />
-              <span>Inspector</span>
-            </button>
-          )}
         </div>
       </div>
 
-      <div className="relative flex items-center justify-center rounded-xl bg-slate-950 p-1.5 sm:p-2">
+      <div className={`tiles relative ${shape}`} style={frameVars}>
         {viewMode === 'split' ? (
           <div
             role="slider"
@@ -182,43 +180,25 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
             onPointerUp={onUp}
             onPointerCancel={onUp}
             onKeyDown={onKey}
-            className={`${panelBase} cursor-ew-resize touch-pan-y select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB]`}
-            style={panelStyle(splitWidth)}
+            className="tile tile-solo cursor-ew-resize touch-pan-y select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB]"
           >
             {outputImages}
             <div className="absolute inset-0 overflow-hidden" style={{ clipPath: `inset(0 ${100 - splitPos}% 0 0)` }}>
-              <img
-                src={inputSrc}
-                alt="Original satellite scene"
-                draggable={false}
-                className="absolute inset-0 h-full w-full object-cover transition-transform duration-100"
-                style={pixelated}
-              />
+              <img src={inputSrc} alt="Original satellite scene" draggable={false} className={imgFill} style={pixelated} />
             </div>
 
             {labels && (
               <>
-            <div className="pointer-events-none absolute left-2 top-2 z-10 sm:left-3 sm:top-3">
-              <div className="flex items-center gap-1.5 rounded-md border border-white/10 bg-black/65 px-2 py-1 text-[10px] font-medium text-white shadow-sm backdrop-blur-md sm:px-2.5 sm:text-[11px]">
-                <span className="h-2 w-2 rounded-full bg-amber-400" />
-                <span className="sm:hidden">Input 10 m</span>
-                <span className="hidden sm:inline">Original Input (10 m GSD)</span>
-              </div>
-            </div>
-            <div className="pointer-events-none absolute right-2 top-2 z-10 max-w-[48%] sm:right-3 sm:top-3">
-              <div className="flex items-center gap-1.5 rounded-md border border-white/10 bg-[#2563EB]/90 px-2 py-1 text-[10px] font-semibold text-white shadow-sm backdrop-blur-md sm:px-2.5 sm:text-[11px]">
-                <Sparkle className="h-3 w-3 shrink-0 fill-white" />
-                <span className="truncate sm:hidden">{activeLayer ? activeLayer.name : 'Output 2.5 m'}</span>
-                <span className="hidden truncate sm:inline">{activeLayer ? `${activeLayer.name} (2.5 m)` : 'Enhanced Output (2.5 m)'}</span>
-              </div>
-            </div>
-
-            <div className="pointer-events-none absolute bottom-3 left-3 z-10 hidden sm:block">
-              <span className="rounded bg-black/70 px-2 py-0.5 font-mono text-[10px] text-slate-200 shadow-sm backdrop-blur-md">Sentinel-2 L2A</span>
-            </div>
-            <div className="pointer-events-none absolute bottom-3 right-3 z-10 hidden sm:block">
-              <span className="rounded bg-black/70 px-2 py-0.5 font-mono text-[10px] text-slate-200 shadow-sm backdrop-blur-md">4-Band Multispectral</span>
-            </div>
+                {inputTag}
+                <div className="pointer-events-none absolute right-2 top-2 z-10 max-w-[48%] sm:right-2.5 sm:top-2.5">
+                  <div className="flex items-center gap-1.5 rounded-md border border-white/10 bg-[#2563EB]/90 px-2 py-1 text-[10px] font-semibold text-white shadow-sm backdrop-blur-md sm:text-[11px]">
+                    <Sparkle className="h-3 w-3 shrink-0 fill-white" />
+                    <span className="truncate sm:hidden">{activeLayer ? activeLayer.name : 'Output 2.5 m'}</span>
+                    <span className="hidden truncate sm:inline">{outputName} 2.5 m</span>
+                  </div>
+                </div>
+                <span className={`${bottomTag} left-2.5`}>Sentinel-2 L2A</span>
+                <span className={`${bottomTag} right-2.5`}>4-band multispectral</span>
               </>
             )}
 
@@ -229,17 +209,23 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
             </div>
           </div>
         ) : (
-          <div className={`flex w-full justify-center gap-2 ${sideBySide ? 'flex-row' : 'flex-col items-center'}`}>
-            <div className={panelBase} style={panelStyle(sideBySide ? rowWidth : colWidth)}>
-              <img src={inputSrc} alt="Original" draggable={false} className="h-full w-full object-cover" style={pixelated} />
-              {labels && <div className="absolute left-2 top-2 rounded bg-black/65 px-2 py-0.5 text-[10px] text-white">Original (10 m)</div>}
+          <div className="tiles-row">
+            <div className="tile">
+              <img src={inputSrc} alt="Original satellite scene" draggable={false} className={imgFill} style={pixelated} />
+              {labels && (
+                <>
+                  {inputTag}
+                  <span className={`${bottomTag} left-2.5`}>Sentinel-2 L2A</span>
+                </>
+              )}
             </div>
-            <div className={panelBase} style={panelStyle(sideBySide ? rowWidth : colWidth)}>
+            <div className="tile">
               {outputImages}
               {labels && (
-                <div className="absolute left-2 top-2 max-w-[90%] truncate rounded bg-[#2563EB]/90 px-2 py-0.5 text-[10px] text-white">
-                  {activeLayer ? `${activeLayer.name} (2.5 m)` : 'Enhanced (2.5 m)'}
-                </div>
+                <>
+                  {outputTag}
+                  <span className={`${bottomTag} left-2.5`}>4-band multispectral</span>
+                </>
               )}
             </div>
           </div>
@@ -253,8 +239,8 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
         )}
       </div>
 
-      {layers && effective && (
-        <LayerSwitcher layers={layers} selectedId={effective.id} onSelect={setLayerId} opacity={opacity} onOpacity={setOpacity} />
+      {layers && effective && onLayerChange && (
+        <LayerSwitcher layers={layers} selectedId={effective.id} onSelect={onLayerChange} opacity={opacity} onOpacity={setOpacity} />
       )}
 
       <div className="flex items-center justify-between gap-3">
@@ -266,7 +252,7 @@ export default function Viewer({ result, imageName, initializing, onOpenInspecto
           {(
             [
               ['split', 'Split', SplitSquareHorizontal],
-              ['side-by-side', phone ? 'Stacked' : 'Side-by-Side', Columns],
+              ['side-by-side', phone ? 'Tiles' : 'Side by side', Columns],
             ] as const
           ).map(([mode, label, Icon]) => (
             <button

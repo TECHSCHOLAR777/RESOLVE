@@ -27,8 +27,8 @@ interface Props extends AreaSettings {
 }
 
 const SIZES: { size: SizePx; time: string }[] = [
-  { size: 256, time: 'about 15 s' },
-  { size: 512, time: 'about 40 s' },
+  { size: 256, time: 'about 10 s' },
+  { size: 512, time: 'about 20 s' },
 ];
 
 export const todayIso = () => new Date().toISOString().slice(0, 10);

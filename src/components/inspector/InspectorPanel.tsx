@@ -10,16 +10,29 @@ export interface InspectorPanelProps {
   loading?: boolean;
 }
 
+/** Two columns on tablets (scene + pipeline, map + metrics), one stacked column on desktop and phones. */
 export default function InspectorPanel({ result, sceneName, loading = false }: InspectorPanelProps) {
   return (
     <aside
       aria-label="Inspector"
-      className="flex w-full flex-col gap-3 bg-transparent text-slate-900 dark:text-slate-100"
+      className="grid w-full items-start gap-3 bg-transparent text-slate-900 md:grid-cols-2 xl:flex xl:flex-col xl:items-stretch dark:text-slate-100"
     >
-      <SceneCard result={result} sceneName={sceneName} loading={loading} />
-      <MapCard result={result} loading={loading} />
-      <MetricsCard result={result} loading={loading} />
-      <PipelineCard result={result} loading={loading} />
+      <div className="contents md:flex md:flex-col md:gap-3 xl:contents">
+        <div className="xl:order-1">
+          <SceneCard result={result} sceneName={sceneName} loading={loading} />
+        </div>
+        <div className="max-md:order-4 xl:order-4">
+          <PipelineCard result={result} loading={loading} />
+        </div>
+      </div>
+      <div className="contents md:flex md:flex-col md:gap-3 xl:contents">
+        <div className="xl:order-2">
+          <MapCard result={result} loading={loading} />
+        </div>
+        <div className="xl:order-3">
+          <MetricsCard result={result} loading={loading} />
+        </div>
+      </div>
     </aside>
   );
 }

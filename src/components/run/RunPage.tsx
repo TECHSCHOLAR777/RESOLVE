@@ -22,7 +22,7 @@ export default function RunPage() {
 
 function RunView({ run }: { run: RunState }) {
   const navigate = useNavigate();
-  const { finishRun, retry } = useRun();
+  const { finishRun, retry, consumeReturnPath } = useRun();
   const { settings } = useSettings();
   const result = run.result;
 
@@ -62,7 +62,7 @@ function RunView({ run }: { run: RunState }) {
 
   const isArea = !!run.area;
   const goBack = () => {
-    navigate('/', { replace: true });
+    navigate(result ? consumeReturnPath() : '/', { replace: true });
     finishRun(!!result);
   };
   const backToMap = () => {

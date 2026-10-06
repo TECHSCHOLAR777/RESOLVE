@@ -1,16 +1,12 @@
 import { useState } from 'react';
 import { ArrowRight, Download } from 'lucide-react';
-import { sampleThumbUrl, type Sample } from '../../api';
 import { downloadUrl, slug } from '../../lib/exports';
 import type { HistoryEntry } from '../../lib/history';
 import { relativeTime } from '../../lib/time';
 
 interface Props {
   history: HistoryEntry[];
-  /** Shown only while history is empty, so the section is never made up. */
-  samples: Sample[];
   onOpenEntry: (entry: HistoryEntry) => void;
-  onPickSample: (sample: Sample) => void;
   onViewAll: () => void;
 }
 
@@ -54,11 +50,10 @@ function Card({ title, subtitle, imgUrl, badge, onOpen, onDownload }: { title: s
   );
 }
 
-export default function RecentActivity({ history, samples, onOpenEntry, onPickSample, onViewAll }: Props) {
+export default function RecentActivity({ history, onOpenEntry, onViewAll }: Props) {
   const [error, setError] = useState<string | null>(null);
   const entries = history.slice(0, 4);
-  const fallback = samples.slice(0, 4);
-  if (entries.length === 0 && fallback.length === 0) return null;
+  if (entries.length === 0) return null;
 
   const download = (e: HistoryEntry) => {
     setError(null);
@@ -68,17 +63,15 @@ export default function RecentActivity({ history, samples, onOpenEntry, onPickSa
   return (
     <section aria-label="Recent activity">
       <div className="mb-3.5 flex items-center justify-between">
-        <h2 className="text-base font-bold text-ink">{entries.length > 0 ? 'Recent Activity' : 'Try a sample scene'}</h2>
-        {entries.length > 0 && (
-          <button
-            type="button"
-            onClick={onViewAll}
-            className={`flex cursor-pointer items-center gap-1 rounded text-xs font-semibold text-accent-text transition-colors hover:text-accent-text-hover ${ring}`}
-          >
-            <span>View All</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
-        )}
+        <h2 className="text-base font-bold text-ink">Recent Activity</h2>
+        <button
+          type="button"
+          onClick={onViewAll}
+          className={`flex cursor-pointer items-center gap-1 rounded text-xs font-semibold text-accent-text transition-colors hover:text-accent-text-hover ${ring}`}
+        >
+          <span>View All</span>
+          <ArrowRight className="h-3.5 w-3.5" />
+        </button>
       </div>
       {error && (
         <p role="alert" className="mb-2 text-xs text-red-600 dark:text-red-400">
@@ -86,29 +79,18 @@ export default function RecentActivity({ history, samples, onOpenEntry, onPickSa
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {entries.length > 0
-          ? entries.map((e) => (
-              <Card
-                key={e.id}
-                title={e.name}
-                subtitle={relativeTime(e.createdAt)}
-                imgUrl={e.thumbUrl}
-                badge="4×"
-                onOpen={() => onOpenEntry(e)}
-                onDownload={() => download(e)}
-              />
-            ))
-          : fallback.map((s) => (
-              <Card
-                key={s.id}
-                title={s.name}
-                subtitle={[s.location, s.date].filter(Boolean).join(' · ') || 'Sample scene'}
-                imgUrl={sampleThumbUrl(s.id)}
-                badge="Sample"
-                onOpen={() => onPickSample(s)}
-              />
-            ))}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 max-lg:[&>*:nth-child(n+3)]:hidden">
+        {entries.map((e) => (
+          <Card
+            key={e.id}
+            title={e.name}
+            subtitle={relativeTime(e.createdAt)}
+            imgUrl={e.thumbUrl}
+            badge="4×"
+            onOpen={() => onOpenEntry(e)}
+            onDownload={() => download(e)}
+          />
+        ))}
       </div>
     </section>
   );

@@ -75,7 +75,7 @@ export default function ExportMenu({ result, name, layerId, onError }: Props) {
         <ChevronDown className="h-3.5 w-3.5" aria-hidden />
       </button>
       {open && (
-        <div role="menu" aria-label="Export" className="absolute bottom-full right-0 z-40 mb-2 w-60 overflow-hidden rounded-xl border border-line bg-raised p-1 shadow-lg dark:shadow-none">
+        <div role="menu" aria-label="Export" className="absolute right-0 top-full z-40 mt-2 w-60 overflow-hidden rounded-xl border border-line bg-raised p-1 shadow-lg dark:shadow-none">
           {items.map((it) => (
             <button
               key={it.label}

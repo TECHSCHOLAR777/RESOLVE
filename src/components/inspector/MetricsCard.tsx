@@ -34,8 +34,6 @@ export default function MetricsCard({ result, loading }: { result: SuperresResul
   const outPx = px ? px / 4 : null;
   const inW = scene && scene.width > 0 ? scene.width : Math.round(result.input.width / 4);
   const inH = scene && scene.width > 0 ? scene.height : Math.round(result.input.height / 4);
-  const { confidence, lock } = result;
-  const pct = (v: number) => `${(v * 100).toFixed(1)}`;
   const area = scene && px ? (scene.width * px * scene.height * px) / 1e6 : null;
 
   return (
@@ -50,13 +48,6 @@ export default function MetricsCard({ result, loading }: { result: SuperresResul
         <div className="col-span-2">
           <Stat label="Ground area covered" value={area != null ? area.toFixed(2) : NA} unit="km²" />
         </div>
-        {confidence && <Stat label="Mean confidence" value={pct(confidence.mean)} unit="%" />}
-        {confidence && <Stat label="High-confidence share" value={pct(confidence.high_fraction)} unit="%" />}
-        {lock && (
-          <div className="col-span-2">
-            <Stat label="Measurement-lock consistency" value={`${lock.consistency_before.toFixed(3)} → ${lock.consistency_after.toFixed(3)}`} />
-          </div>
-        )}
       </div>
     </Card>
   );

@@ -15,10 +15,10 @@ export function gradientFor(colormap: string): string {
   return GRADIENTS[colormap.toLowerCase().replace(/[^a-z]/g, '')] ?? FALLBACK;
 }
 
-export default function Legend({ legend }: { legend: LayerLegend }) {
+export default function Legend({ legend, compact = false }: { legend: LayerLegend; compact?: boolean }) {
   if (legend.type === 'ramp' && legend.colormap.toLowerCase() === 'rgb') {
     // Three-channel composites (false colour, feature PCA, embeddings) have no single scale.
-    return <p className="text-[11px] text-muted">{legend.note ?? 'Three-channel composite'}</p>;
+    return <p className={`text-[11px] text-muted ${compact ? 'line-clamp-2' : ''}`}>{legend.note ?? 'Three-channel composite'}</p>;
   }
   if (legend.type === 'ramp') {
     return (
@@ -36,14 +36,17 @@ export default function Legend({ legend }: { legend: LayerLegend }) {
       </div>
     );
   }
+  const MAX = 4;
+  const shown = compact ? legend.classes.slice(0, MAX) : legend.classes;
   return (
     <ul className="flex flex-wrap gap-x-3 gap-y-1">
-      {legend.classes.map((c) => (
+      {shown.map((c) => (
         <li key={c.label} className="flex items-center gap-1.5 text-[11px] text-body">
           <span className="h-2.5 w-2.5 shrink-0 rounded-sm border border-black/15 dark:border-white/20" style={{ backgroundColor: c.color }} />
           {c.label}
         </li>
       ))}
+      {compact && legend.classes.length > MAX && <li className="text-[11px] text-faint">+{legend.classes.length - MAX} more</li>}
     </ul>
   );
 }

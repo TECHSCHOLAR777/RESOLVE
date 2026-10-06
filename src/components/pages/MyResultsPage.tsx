@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, ImageOff, Layers, RotateCcw, Search, Trash2, X } from 'lucide-react';
+import { ChartNoAxesCombined, Download, ImageOff, Layers, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import type { AreaParams } from '../../api';
 import { clearRuns, removeRun, useHistory, type HistoryEntry } from '../../lib/history';
 import { downloadUrl, slug } from '../../lib/exports';
@@ -9,6 +9,8 @@ import PageHeader, { focusRing } from './PageHeader';
 export interface MyResultsPageProps {
   /** Resolve false when the stored result can no longer be loaded. */
   onOpen: (entry: HistoryEntry) => void | boolean | Promise<boolean | void>;
+  /** Open the stored result and land on the full analysis screen. */
+  onAnalysis: (entry: HistoryEntry) => void | boolean | Promise<boolean | void>;
   onRerunSample: (sampleId: string) => void;
   onRerunArea?: (area: AreaParams) => void;
   /** Empty-state call to action. Falls back to a plain link to "/". */
@@ -22,7 +24,7 @@ function formatRuntime(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
 }
 
-function Card({ entry, onOpen, onRerunSample, onRerunArea }: { entry: HistoryEntry } & Pick<MyResultsPageProps, 'onOpen' | 'onRerunSample' | 'onRerunArea'>) {
+function Card({ entry, onOpen, onAnalysis, onRerunSample, onRerunArea }: { entry: HistoryEntry } & Pick<MyResultsPageProps, 'onOpen' | 'onAnalysis' | 'onRerunSample' | 'onRerunArea'>) {
   const [expired, setExpired] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,15 +44,18 @@ function Card({ entry, onOpen, onRerunSample, onRerunArea }: { entry: HistoryEnt
     }
   };
 
+  const open = async () => {
+    if ((await onOpen(entry)) === false) setExpired(true);
+  };
+  const openAnalysis = async () => {
+    if ((await onAnalysis(entry)) === false) setExpired(true);
+  };
+
   return (
     <li className="group flex flex-col overflow-hidden rounded-xl border border-line bg-card shadow-sm">
       <button
         type="button"
-        onClick={async () => {
-          if (expired) {
-            rerun?.();
-          } else if ((await onOpen(entry)) === false) setExpired(true);
-        }}
+        onClick={() => (expired ? rerun?.() : open())}
         disabled={expired && !rerun}
         aria-label={expired ? `${entry.name}: result expired` : `Open ${entry.name}`}
         className={`relative block aspect-[4/3] w-full cursor-pointer overflow-hidden bg-sunken disabled:cursor-default ${focusRing}`}
@@ -102,23 +107,43 @@ function Card({ entry, onOpen, onRerunSample, onRerunArea }: { entry: HistoryEnt
         )}
 
         <div className="mt-auto flex items-center gap-2 border-t border-line-soft pt-3">
-          {expired && rerun ? (
-            <button
-              type="button"
-              onClick={rerun!}
-              className={`inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#1d4ed8] ${focusRing}`}
-            >
-              <RotateCcw size={13} aria-hidden /> Run again
-            </button>
+          {expired ? (
+            rerun && (
+              <button
+                type="button"
+                onClick={rerun}
+                className={`inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#1d4ed8] ${focusRing}`}
+              >
+                <RotateCcw size={13} aria-hidden /> Run again
+              </button>
+            )
           ) : (
-            <button
-              type="button"
-              onClick={download}
-              disabled={expired || busy}
-              className={`inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-line bg-raised px-3 text-xs font-semibold text-body transition-colors hover:border-line-strong hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-            >
-              <Download size={13} aria-hidden /> {busy ? 'Downloading' : 'GeoTIFF'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={open}
+                className={`inline-flex h-8 flex-1 cursor-pointer items-center justify-center rounded-lg bg-[#2563EB] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#1d4ed8] ${focusRing}`}
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                onClick={openAnalysis}
+                className={`inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-line bg-raised px-3 text-xs font-semibold text-body transition-colors hover:border-line-strong hover:text-ink ${focusRing}`}
+              >
+                <ChartNoAxesCombined size={13} aria-hidden /> Analysis
+              </button>
+              <button
+                type="button"
+                onClick={download}
+                disabled={busy}
+                title="Download GeoTIFF"
+                aria-label={`Download ${entry.name} as GeoTIFF`}
+                className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-muted transition-colors hover:bg-sunken hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+              >
+                <Download size={15} className={busy ? 'animate-pulse' : ''} aria-hidden />
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -188,7 +213,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'area', label: 'Map areas' },
 ];
 
-export default function MyResultsPage({ onOpen, onRerunSample, onRerunArea, onGoToWorkspace }: MyResultsPageProps) {
+export default function MyResultsPage({ onOpen, onAnalysis, onRerunSample, onRerunArea, onGoToWorkspace }: MyResultsPageProps) {
   const entries = useHistory();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -305,7 +330,7 @@ export default function MyResultsPage({ onOpen, onRerunSample, onRerunArea, onGo
           ) : (
             <ul className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {visible.map((e) => (
-                <Card key={e.id} entry={e} onOpen={onOpen} onRerunSample={onRerunSample} onRerunArea={onRerunArea} />
+                <Card key={e.id} entry={e} onOpen={onOpen} onAnalysis={onAnalysis} onRerunSample={onRerunSample} onRerunArea={onRerunArea} />
               ))}
             </ul>
           )}

@@ -67,7 +67,7 @@ export default function NavSidebar({ active: activeNav, onSelect, className = 'w
 
           {/* Navigation Links with Glassmorphism */}
           <nav aria-label="Primary" className="space-y-1.5">
-            {ITEMS.map((item, i) => {
+            {ITEMS.map((item) => {
               const on = activeNav === item.key;
               return (
                 <div key={item.key}>
