@@ -9,12 +9,16 @@ import {
   Lock,
   PackageCheck,
   Satellite,
+  SatelliteDish,
   ShieldCheck,
   SlidersHorizontal,
   type LucideIcon,
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { BACKBONE, stageDescription, type SceneCtx, type StageView } from './timeline';
+import { SEARCH_TITLE } from './stageTimings';
+import { BACKBONE, searchDescription, stageDescription, type SceneCtx, type StageView } from './timeline';
+
+const SEARCH_STAGE: { title: string; icon: LucideIcon; doneNote?: string } = { title: SEARCH_TITLE, icon: SatelliteDish };
 
 const STAGES: { title: string; icon: LucideIcon; doneNote?: string }[] = [
   { title: 'Sentinel-2 ingest', icon: Satellite },
@@ -34,17 +38,21 @@ interface Props {
   ctx: SceneCtx;
   held: boolean;
   failed: boolean;
+  /** Map-area run: a search stage precedes ingest and `views` includes it. */
+  area?: boolean;
 }
 
-export default function StageList({ views, ctx, held, failed }: Props) {
+export default function StageList({ views, ctx, held, failed, area = false }: Props) {
+  const offset = area ? 1 : 0;
+  const stages = area ? [SEARCH_STAGE, ...STAGES] : STAGES;
   return (
     <ol className="divide-y divide-line-soft">
-      {STAGES.map((stage, i) => {
+      {stages.map((stage, i) => {
         const v = views[i];
         const Icon = stage.icon;
         const running = v.status === 'running';
         const done = v.status === 'done';
-        const waiting = running && i === BACKBONE && held;
+        const waiting = running && i === BACKBONE + offset && held;
         const errored = running && failed;
         return (
           <li
@@ -70,7 +78,11 @@ export default function StageList({ views, ctx, held, failed }: Props) {
             <div className="min-w-0">
               <div className={`text-[13px] font-semibold leading-5 ${running ? 'text-ink' : 'text-body'}`}>{stage.title}</div>
               <div className="text-xs leading-[18px] text-muted">
-                {done && stage.doneNote ? `${stageDescription(i, ctx)}, ${stage.doneNote}` : stageDescription(i, ctx)}
+                {area && i === 0
+                  ? searchDescription(ctx)
+                  : done && stage.doneNote
+                    ? `${stageDescription(i - offset, ctx)}, ${stage.doneNote}`
+                    : stageDescription(i - offset, ctx)}
               </div>
               {running && (
                 <div className="mt-1.5 h-[3px] overflow-hidden rounded-full bg-sunken">

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { mapStageMs } from './stageTimings';
+import { mapStageMs, searchMs } from './stageTimings';
 import type { RunState } from './RunContext';
 import {
-  PRE_END,
   buildEvents,
   buildPlan,
   deriveGrid,
+  foundSceneLine,
   nativeSize,
   patchStates,
   stageViews,
@@ -57,8 +57,12 @@ export function useRunTimeline(run: RunState, assetsReady: boolean): TimelineVie
   const failed = run.status === 'error';
 
   const grid = useMemo(() => deriveGrid(result, run.dims), [result, run.dims]);
-  const plan = useMemo(() => buildPlan(grid.count), [grid.count]);
-  const ctx = useMemo<SceneCtx>(() => ({ result, grid, size: nativeSize(result, run.dims) }), [result, grid, run.dims]);
+  const isArea = !!run.area;
+  const plan = useMemo(() => buildPlan(grid.count, isArea), [grid.count, isArea]);
+  const ctx = useMemo<SceneCtx>(
+    () => ({ result, grid, size: nativeSize(result, run.dims), areaName: isArea ? run.label : null }),
+    [result, grid, run.dims, isArea, run.label],
+  );
   const events = useMemo(() => buildEvents(plan), [plan]);
 
   const live = useRef({ ready, failed, plan, events, ctx, error: run.error });
@@ -75,6 +79,7 @@ export function useRunTimeline(run: RunState, assetsReady: boolean): TimelineVie
     let heldMs = 0;
     let nextWait = 5000;
     let errorLogged = false;
+    let sceneLogged = false;
     const logs: LogLine[] = [];
     let logView: LogLine[] = [];
     const startedAt = run.startedAt;
@@ -95,9 +100,17 @@ export function useRunTimeline(run: RunState, assetsReady: boolean): TimelineVie
         return;
       }
 
-      vt = Math.min(vt + dt, s.ready ? s.plan.total : PRE_END);
-      const held = !s.ready && vt >= PRE_END;
+      vt = Math.min(vt + dt, s.ready ? s.plan.total : s.plan.preEnd);
+      const held = !s.ready && vt >= s.plan.preEnd;
       let changed = false;
+      if (!sceneLogged && s.ctx.result) {
+        sceneLogged = true;
+        const line = foundSceneLine(s.ctx.result);
+        if (line) {
+          logs.push({ at: elapsed, text: line });
+          changed = true;
+        }
+      }
       while (idx < s.events.length && s.events[idx].t <= vt) {
         logs.push({ at: elapsed, text: s.events[idx].text(s.ctx) });
         idx++;
@@ -126,9 +139,13 @@ export function useRunTimeline(run: RunState, assetsReady: boolean): TimelineVie
   }, [run.startedAt, run.seq]);
 
   const { vt } = clock;
-  const held = !ready && !failed && vt >= PRE_END;
+  const held = !ready && !failed && vt >= plan.preEnd;
   const runtimeMs = result ? result.runtime_ms : null;
-  const realMs = useMemo(() => (result?.stages?.length ? mapStageMs(result.stages) : null), [result]);
+  const realMs = useMemo(() => {
+    if (!result?.stages?.length) return null;
+    const mapped = mapStageMs(result.stages);
+    return isArea ? [searchMs(result.stages), ...mapped] : mapped;
+  }, [result, isArea]);
   const stages = useMemo(() => stageViews(plan, vt, runtimeMs, realMs), [plan, vt, runtimeMs, realMs]);
   const patches = useMemo(() => patchStates(plan, vt, held), [plan, vt, held]);
   const complete = ready && vt >= plan.total;

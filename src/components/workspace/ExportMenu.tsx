@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Download } from 'lucide-react';
 import type { SuperresResult } from '../../api';
-import { downloadMetadataJson, downloadPng, downloadTif } from '../../lib/exports';
+import { downloadInputTif, downloadMetadataJson, downloadPng, downloadTif } from '../../lib/exports';
 
 interface Props {
   result: SuperresResult | null;
@@ -53,6 +53,9 @@ export default function ExportMenu({ result, name, layerId, onError }: Props) {
           disabled: !layer,
           action: () => downloadPng(result, layerId, name),
         },
+        ...(result.source_scene
+          ? [{ label: 'Input GeoTIFF (10 m)', hint: 'Sentinel-2 source crop', action: () => downloadInputTif(result, name) }]
+          : []),
         { label: 'Metadata JSON', hint: 'Scene, metrics, stages', action: () => downloadMetadataJson(result, name) },
       ]
     : [];

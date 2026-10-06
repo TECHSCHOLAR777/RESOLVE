@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Check, Download, FileText, Sparkles } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { ArrowRight, Check, Download, FileText, MapPinned, Sparkles } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { InspectorPanel } from '../inspector';
 import { useRun } from '../run/RunContext';
 import { downloadTif } from '../../lib/exports';
@@ -72,7 +72,24 @@ export default function Workspace() {
   const mobile = layout === 'mobile';
   const desktop = layout === 'desktop';
 
-  const upload = <UploadCard onFile={startUpload} />;
+  const upload = (
+    <>
+      <UploadCard onFile={startUpload} />
+      <Link
+        to="/map"
+        className="group flex items-center gap-3 rounded-2xl border border-line bg-card p-3.5 shadow-xs transition-all hover:border-line-strong hover:shadow-sm dark:shadow-none"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-text">
+          <MapPinned className="h-5 w-5" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold text-ink">Select area on map</span>
+          <span className="block text-xs text-muted">Pick any place and enhance its latest Sentinel-2 scene</span>
+        </span>
+        <ArrowRight className="h-4 w-4 shrink-0 text-faint transition-transform group-hover:translate-x-0.5" aria-hidden />
+      </Link>
+    </>
+  );
   const gallery = (
     <SampleGallery
       samples={samples}

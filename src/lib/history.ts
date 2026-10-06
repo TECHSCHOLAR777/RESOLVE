@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { absUrl, outputTifUrl, sampleThumbUrl, type SuperresResult } from '../api';
+import { absUrl, outputTifUrl, sampleThumbUrl, type AreaParams, type SuperresResult } from '../api';
 
 const KEY = 'resolve:history';
 const EVENT = 'resolve:history-changed';
@@ -18,8 +18,10 @@ export interface HistoryEntry {
   /** Backend result id. */
   id: string;
   name: string;
-  kind: 'sample' | 'upload';
+  kind: 'sample' | 'upload' | 'area';
   sampleId?: string;
+  /** Parameters of a map-area run, so it can be run again. */
+  area?: AreaParams;
   createdAt: string;
   runtime_ms: number;
   scene?: HistoryScene;
@@ -30,8 +32,9 @@ export interface HistoryEntry {
 
 export interface RunMeta {
   name: string;
-  kind: 'sample' | 'upload';
+  kind: 'sample' | 'upload' | 'area';
   sampleId?: string;
+  area?: AreaParams;
 }
 
 function isEntry(v: unknown): v is HistoryEntry {
@@ -78,10 +81,18 @@ export function addRun(result: SuperresResult, meta: RunMeta): HistoryEntry {
     name: meta.name,
     kind: meta.kind,
     sampleId: meta.sampleId,
+    area: meta.area,
     createdAt: new Date().toISOString(),
     runtime_ms: result.runtime_ms,
     scene: s
-      ? { center: s.center, date: s.date, satellite: s.satellite, tile_id: s.tile_id, width: s.width, height: s.height }
+      ? {
+          center: s.center,
+          date: result.source_scene?.date ?? s.date,
+          satellite: result.source_scene?.satellite ?? s.satellite,
+          tile_id: result.source_scene?.tile_id ?? s.tile_id,
+          width: s.width,
+          height: s.height,
+        }
       : undefined,
     thumbUrl: meta.kind === 'sample' && meta.sampleId ? sampleThumbUrl(meta.sampleId) : absUrl(result.input.png),
     outputUrl: absUrl(result.output.png),

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, ImageOff, Layers, RotateCcw, Search, Trash2, X } from 'lucide-react';
+import type { AreaParams } from '../../api';
 import { clearRuns, removeRun, useHistory, type HistoryEntry } from '../../lib/history';
 import { downloadUrl, slug } from '../../lib/exports';
 import { relativeTime } from '../../lib/time';
@@ -9,21 +10,23 @@ export interface MyResultsPageProps {
   /** Resolve false when the stored result can no longer be loaded. */
   onOpen: (entry: HistoryEntry) => void | boolean | Promise<boolean | void>;
   onRerunSample: (sampleId: string) => void;
+  onRerunArea?: (area: AreaParams) => void;
   /** Empty-state call to action. Falls back to a plain link to "/". */
   onGoToWorkspace?: () => void;
 }
 
-type Filter = 'all' | 'sample' | 'upload';
+type Filter = 'all' | 'sample' | 'upload' | 'area';
 type Sort = 'newest' | 'oldest';
 
 function formatRuntime(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
 }
 
-function Card({ entry, onOpen, onRerunSample }: { entry: HistoryEntry } & Pick<MyResultsPageProps, 'onOpen' | 'onRerunSample'>) {
+function Card({ entry, onOpen, onRerunSample, onRerunArea }: { entry: HistoryEntry } & Pick<MyResultsPageProps, 'onOpen' | 'onRerunSample' | 'onRerunArea'>) {
   const [expired, setExpired] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const rerun = entry.area && onRerunArea ? () => onRerunArea(entry.area!) : entry.sampleId ? () => onRerunSample(entry.sampleId!) : null;
   const meta = [entry.scene?.satellite, entry.scene?.date].filter(Boolean).join(' · ');
 
   const download = async () => {
@@ -45,10 +48,10 @@ function Card({ entry, onOpen, onRerunSample }: { entry: HistoryEntry } & Pick<M
         type="button"
         onClick={async () => {
           if (expired) {
-            if (entry.sampleId) onRerunSample(entry.sampleId);
+            rerun?.();
           } else if ((await onOpen(entry)) === false) setExpired(true);
         }}
-        disabled={expired && !entry.sampleId}
+        disabled={expired && !rerun}
         aria-label={expired ? `${entry.name}: result expired` : `Open ${entry.name}`}
         className={`relative block aspect-[4/3] w-full cursor-pointer overflow-hidden bg-sunken disabled:cursor-default ${focusRing}`}
       >
@@ -67,7 +70,7 @@ function Card({ entry, onOpen, onRerunSample }: { entry: HistoryEntry } & Pick<M
           />
         )}
         <span className="absolute left-2 top-2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur-sm">
-          {entry.kind === 'sample' ? 'Sample' : 'Upload'}
+          {entry.kind === 'sample' ? 'Sample' : entry.kind === 'area' ? 'Map area' : 'Upload'}
         </span>
       </button>
 
@@ -99,10 +102,10 @@ function Card({ entry, onOpen, onRerunSample }: { entry: HistoryEntry } & Pick<M
         )}
 
         <div className="mt-auto flex items-center gap-2 border-t border-line-soft pt-3">
-          {expired && entry.sampleId ? (
+          {expired && rerun ? (
             <button
               type="button"
-              onClick={() => onRerunSample(entry.sampleId!)}
+              onClick={rerun!}
               className={`inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#1d4ed8] ${focusRing}`}
             >
               <RotateCcw size={13} aria-hidden /> Run again
@@ -182,9 +185,10 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'sample', label: 'Samples' },
   { id: 'upload', label: 'Uploads' },
+  { id: 'area', label: 'Map areas' },
 ];
 
-export default function MyResultsPage({ onOpen, onRerunSample, onGoToWorkspace }: MyResultsPageProps) {
+export default function MyResultsPage({ onOpen, onRerunSample, onRerunArea, onGoToWorkspace }: MyResultsPageProps) {
   const entries = useHistory();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -262,7 +266,7 @@ export default function MyResultsPage({ onOpen, onRerunSample, onGoToWorkspace }
               )}
             </label>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <div role="group" aria-label="Filter by type" className="inline-flex rounded-lg border border-line bg-sunken p-0.5">
                 {FILTERS.map((f) => (
                   <button
@@ -270,7 +274,7 @@ export default function MyResultsPage({ onOpen, onRerunSample, onGoToWorkspace }
                     type="button"
                     aria-pressed={filter === f.id}
                     onClick={() => setFilter(f.id)}
-                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-semibold transition-colors ${focusRing} ${
+                    className={`h-8 cursor-pointer whitespace-nowrap rounded-md px-2.5 text-xs sm:px-3 font-semibold transition-colors ${focusRing} ${
                       filter === f.id ? 'bg-card text-ink shadow-sm' : 'text-muted hover:text-ink'
                     }`}
                   >
@@ -301,7 +305,7 @@ export default function MyResultsPage({ onOpen, onRerunSample, onGoToWorkspace }
           ) : (
             <ul className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {visible.map((e) => (
-                <Card key={e.id} entry={e} onOpen={onOpen} onRerunSample={onRerunSample} />
+                <Card key={e.id} entry={e} onOpen={onOpen} onRerunSample={onRerunSample} onRerunArea={onRerunArea} />
               ))}
             </ul>
           )}

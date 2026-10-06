@@ -7,8 +7,7 @@ import { useRun, type RunState } from './RunContext';
 import { useSettings } from '../../lib/settings';
 import { ThemeToggle } from '../../theme';
 import { useRunTimeline } from './useRunTimeline';
-import { STAGE_COUNT } from './timeline';
-import { STAGE_TITLES } from './stageTimings';
+import { SEARCH_TITLE, STAGE_TITLES } from './stageTimings';
 import LiveTile from './LiveTile';
 import StageList from './StageList';
 import Telemetry from './Telemetry';
@@ -16,8 +15,8 @@ import Telemetry from './Telemetry';
 const RETURN_DELAY_MS = 1100;
 
 export default function RunPage() {
-  const { run } = useRun();
-  if (!run) return <Navigate to="/" replace />;
+  const { run, exitPath } = useRun();
+  if (!run) return <Navigate to={exitPath()} replace />;
   return <RunView key={run.seq} run={run} />;
 }
 
@@ -61,9 +60,14 @@ function RunView({ run }: { run: RunState }) {
     : natural ?? run.dims;
   const aspect = dims && dims.w > 0 && dims.h > 0 ? dims.w / dims.h : 1;
 
+  const isArea = !!run.area;
   const goBack = () => {
     navigate('/', { replace: true });
     finishRun(!!result);
+  };
+  const backToMap = () => {
+    navigate('/map', { replace: true });
+    finishRun(false, '/map');
   };
 
   useEffect(() => {
@@ -76,7 +80,13 @@ function RunView({ run }: { run: RunState }) {
 
   const pct = Math.floor(tl.overall * 100);
   const scene = result?.scene;
-  const meta = [scene?.satellite, scene?.date, scene?.tile_id].filter(Boolean).join('  ·  ');
+  const src = result?.source_scene;
+  const meta = src
+    ? [src.satellite, src.date, src.tile_id, `cloud ${src.cloud_cover.toFixed(1)} %`].join('  ·  ')
+    : run.area && !result
+      ? `${run.area.lat.toFixed(4)}, ${run.area.lon.toFixed(4)}  ·  ${(run.area.size_px / 100).toFixed(2)} km square`
+      : [scene?.satellite, scene?.date, scene?.tile_id].filter(Boolean).join('  ·  ');
+  const stageTitles = isArea ? [SEARCH_TITLE, ...STAGE_TITLES] : STAGE_TITLES;
   const status = tl.failed ? 'Failed' : tl.complete ? 'Complete' : 'Processing';
 
   return (
@@ -151,11 +161,11 @@ function RunView({ run }: { run: RunState }) {
                 </button>
                 <button
                   type="button"
-                  onClick={goBack}
+                  onClick={isArea ? backToMap : goBack}
                   className="flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#1D4ED8] cursor-pointer"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />
-                  Back to workspace
+                  {isArea ? 'Back to map' : 'Back to workspace'}
                 </button>
               </div>
             </motion.div>
@@ -203,16 +213,16 @@ function RunView({ run }: { run: RunState }) {
 
           <section className="rounded-2xl border border-line bg-card p-4 shadow-xs dark:shadow-none lg:col-span-5">
             <h2 className="mb-1 text-sm font-bold text-ink">Pipeline</h2>
-            <StageList views={tl.stages} ctx={tl.ctx} held={tl.held} failed={tl.failed} />
+            <StageList views={tl.stages} ctx={tl.ctx} held={tl.held} failed={tl.failed} area={isArea} />
           </section>
         </div>
 
         <Telemetry
           patchesDone={tl.patchesDone}
           patchTotal={tl.grid.count}
-          stageTitle={STAGE_TITLES[tl.currentStage]}
+          stageTitle={stageTitles[tl.currentStage]}
           stageIndex={tl.currentStage}
-          stageTotal={STAGE_COUNT}
+          stageTotal={tl.stages.length}
           elapsedMs={tl.elapsedMs}
           waiting={tl.held}
           logs={tl.logs}

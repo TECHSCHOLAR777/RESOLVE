@@ -1,9 +1,10 @@
-import { Home, FolderKanban, HelpCircle, Settings, Satellite } from 'lucide-react';
+import { Home, MapPinned, FolderKanban, HelpCircle, Settings, Satellite } from 'lucide-react';
 
-export type NavKey = 'enhance' | 'results' | 'help' | 'settings';
+export type NavKey = 'enhance' | 'map' | 'results' | 'help' | 'settings';
 
 const ITEMS: { key: NavKey; label: string; icon: typeof Home }[] = [
   { key: 'enhance', label: 'Enhance', icon: Home },
+  { key: 'map', label: 'Select on map', icon: MapPinned },
   { key: 'results', label: 'My Results', icon: FolderKanban },
   { key: 'help', label: 'Help & Support', icon: HelpCircle },
   { key: 'settings', label: 'Settings', icon: Settings },
@@ -70,7 +71,7 @@ export default function NavSidebar({ active: activeNav, onSelect, className = 'w
               const on = activeNav === item.key;
               return (
                 <div key={item.key}>
-                  {i === 2 && <div className="mb-4 mt-4 h-px bg-white/10" />}
+                  {item.key === 'help' && <div className="mb-4 mt-4 h-px bg-white/10" />}
                   <button
                     type="button"
                     onClick={() => setActiveNav(item.key)}

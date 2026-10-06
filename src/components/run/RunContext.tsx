@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listSamples, superresSample, superresUpload, type Sample, type SuperresResult } from '../../api';
+import { listSamples, superresArea, superresSample, superresUpload, type AreaParams, type Sample, type SuperresResult } from '../../api';
 import { addRun, type HistoryEntry, type RunMeta } from '../../lib/history';
+import { saveMapState } from '../../lib/mapState';
 
 const DEFAULT_SCENE_NAME = 'Agricultural Farmland & Road Corridor Scene';
 
@@ -9,6 +10,8 @@ export interface RunState {
   seq: number;
   label: string;
   sampleId?: string;
+  /** Set for map-area runs. */
+  area?: AreaParams;
   /** Native size of the scene when known up front (bundled samples). */
   dims: { w: number; h: number } | null;
   startedAt: number;
@@ -28,8 +31,11 @@ interface RunContextValue {
   initializing: boolean;
   startSample: (sample: { id: string; name: string }) => void;
   startUpload: (file: File) => void;
+  startArea: (params: AreaParams) => void;
   retry: () => void;
-  finishRun: (completed?: boolean) => void;
+  /** Close the run view. `to` is where a RunPage that is still mounted should redirect (default: the workspace). */
+  finishRun: (completed?: boolean, to?: string) => void;
+  exitPath: () => string;
   /** Open a stored run: current result, a sample re-run, or an upload rebuilt from its URLs. Resolves false when the images are gone. */
   openEntry: (entry: HistoryEntry) => Promise<boolean>;
   /** True once after a finished run returned to the workspace, so it can open on the viewer. */
@@ -64,7 +70,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
 
   // The request lives here, above the router outlet, so changing pages never cancels it.
   const launch = useCallback(
-    (label: string, job: () => Promise<SuperresResult>, extra: { sampleId?: string; dims: { w: number; h: number } | null }) => {
+    (label: string, job: () => Promise<SuperresResult>, extra: { sampleId?: string; area?: AreaParams; dims: { w: number; h: number } | null }) => {
       const seq = ++seqRef.current;
       setInitializing(false);
       setRun({ seq, label, job, startedAt: Date.now(), status: 'pending', result: null, error: null, ...extra });
@@ -72,7 +78,12 @@ export function RunProvider({ children }: { children: ReactNode }) {
       job().then(
         (res) => {
           if (seq !== seqRef.current) return;
-          commit(res, label, { name: label, kind: extra.sampleId ? 'sample' : 'upload', sampleId: extra.sampleId });
+          commit(res, label, {
+            name: label,
+            kind: extra.area ? 'area' : extra.sampleId ? 'sample' : 'upload',
+            sampleId: extra.sampleId,
+            area: extra.area,
+          });
           setRun((r) => (r && r.seq === seq ? { ...r, status: 'done', result: res } : r));
         },
         (err: unknown) => {
@@ -101,16 +112,38 @@ export function RunProvider({ children }: { children: ReactNode }) {
     [launch],
   );
 
+  const startArea = useCallback(
+    (params: AreaParams) => {
+      const label = params.name?.trim() || `${params.lat.toFixed(4)}, ${params.lon.toFixed(4)}`;
+      // Keep the selection so "Back to map" lands on the same square.
+      saveMapState({
+        centre: { lat: params.lat, lon: params.lon },
+        size: params.size_px,
+        maxCloud: params.max_cloud,
+        dateMode: params.date_from || params.date_to ? 'range' : 'latest',
+        dateFrom: params.date_from ?? '',
+        dateTo: params.date_to ?? '',
+        name: params.name,
+        view: { lat: params.lat, lon: params.lon, zoom: params.size_px === 512 ? 13 : 14 },
+      });
+      launch(label, () => superresArea({ ...params, name: label }), { area: params, dims: { w: params.size_px, h: params.size_px } });
+    },
+    [launch],
+  );
+
   const retry = useCallback(() => {
     const r = runRef.current;
-    if (r) launch(r.label, r.job, { sampleId: r.sampleId, dims: r.dims });
+    if (r) launch(r.label, r.job, { sampleId: r.sampleId, area: r.area, dims: r.dims });
   }, [launch]);
 
   const fromRunRef = useRef(false);
-  const finishRun = useCallback((completed = false) => {
+  const exitRef = useRef('/');
+  const finishRun = useCallback((completed = false, to = '/') => {
     fromRunRef.current = completed;
+    exitRef.current = to;
     setRun(null);
   }, []);
+  const exitPath = useCallback(() => exitRef.current, []);
   const consumeFromRun = useCallback(() => {
     const v = fromRunRef.current;
     fromRunRef.current = false;
@@ -125,7 +158,19 @@ export function RunProvider({ children }: { children: ReactNode }) {
         navigate('/');
         return true;
       }
-      if (entry.kind === 'sample' && entry.sampleId) {
+      if (entry.area) {
+        // Area results are re-run from their parameters when the stored result is gone.
+        const probe = await new Promise<boolean>((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve(true);
+          img.onerror = () => resolve(false);
+          img.src = entry.outputUrl;
+        });
+        if (!probe) {
+          startArea(entry.area);
+          return true;
+        }
+      } else if (entry.kind === 'sample' && entry.sampleId) {
         startSample({ id: entry.sampleId, name: samples.find((s) => s.id === entry.sampleId)?.name ?? entry.name });
         return true;
       }
@@ -152,7 +197,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       navigate('/');
       return true;
     },
-    [resultId, startSample, samples, commit, navigate],
+    [resultId, startSample, startArea, samples, commit, navigate],
   );
 
   // Silent first load: fetch the sample list and show the first scene in the workspace.
@@ -190,12 +235,14 @@ export function RunProvider({ children }: { children: ReactNode }) {
       initializing,
       startSample,
       startUpload,
+      startArea,
       retry,
       finishRun,
+      exitPath,
       consumeFromRun,
       openEntry,
     }),
-    [run, result, imageName, samples, initializing, startSample, startUpload, retry, finishRun, consumeFromRun, openEntry],
+    [run, result, imageName, samples, initializing, startSample, startUpload, startArea, retry, finishRun, exitPath, consumeFromRun, openEntry],
   );
 
   return <RunContext.Provider value={value}>{children}</RunContext.Provider>;

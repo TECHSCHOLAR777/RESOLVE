@@ -2,74 +2,43 @@ import {useEffect, useState, type ReactNode} from 'react';
 import {health} from '../../api';
 import Splash from './Splash';
 
-const FLAG = 'resolve:splash-seen';
+/** The splash is part of the experience, so every full page load shows it for at least this long. */
+const MIN_MS = 4000;
+/** Never hold the app longer than this, even if the backend is still waking up. */
 const MAX_MS = 8000;
-const FIRST_MIN_MS = 1500;
-const WARM_MIN_MS = 1000;
-const COLD_THRESHOLD_MS = 300;
 
-function seen(): boolean {
-  try {
-    return sessionStorage.getItem(FLAG) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function markSeen() {
-  try {
-    sessionStorage.setItem(FLAG, '1');
-  } catch {
-    // storage unavailable: splash may show again, harmless
-  }
-}
-
-/** Renders children immediately and overlays the splash per the show rule. */
+/**
+ * Renders children immediately and overlays the splash on every full page load.
+ * It closes once MIN_MS has passed and the backend health check has settled, capped at MAX_MS.
+ * Mounted once at boot, so in-app navigation never shows it again.
+ */
 export default function SplashGate({children}: {children: ReactNode}) {
-  const [visible, setVisible] = useState(() => !seen());
+  const [visible, setVisible] = useState(true);
 
   useEffect(() => {
-    const timers: number[] = [];
-    let healthy = false;
-    let closed = false;
-    let shownAt = visible ? performance.now() : 0;
-    let minMs = FIRST_MIN_MS;
-
-    const close = () => {
-      if (closed) return;
-      closed = true;
-      markSeen();
-      setVisible(false);
+    let minElapsed = false;
+    let healthSettled = false;
+    const close = () => setVisible(false);
+    const maybeClose = () => {
+      if (minElapsed && healthSettled) close();
     };
 
-    if (visible) {
-      timers.push(window.setTimeout(close, MAX_MS));
-    } else {
-      // Flag present: only show if the backend is slow to answer (cold start).
-      timers.push(
-        window.setTimeout(() => {
-          if (healthy || closed) return;
-          shownAt = performance.now();
-          minMs = WARM_MIN_MS;
-          setVisible(true);
-          timers.push(window.setTimeout(close, MAX_MS));
-        }, COLD_THRESHOLD_MS),
-      );
-    }
+    const timers = [
+      window.setTimeout(() => {
+        minElapsed = true;
+        maybeClose();
+      }, MIN_MS),
+      window.setTimeout(close, MAX_MS),
+    ];
 
     health()
-      .then(() => {
-        healthy = true;
-        if (shownAt) {
-          const wait = Math.max(0, minMs - (performance.now() - shownAt));
-          timers.push(window.setTimeout(close, wait));
-        }
-      })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        healthSettled = true;
+        maybeClose();
+      });
 
     return () => timers.forEach(clearTimeout);
-    // runs once at boot
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

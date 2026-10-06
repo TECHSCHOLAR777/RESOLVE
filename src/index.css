@@ -129,3 +129,101 @@ body {
 .dark :where(button, a, input, select, textarea, [role="slider"], [tabindex]):focus-visible {
   outline-color: #60a5fa;
 }
+
+/* Map selector */
+.rs-map {
+  background: var(--sunken);
+  font-family: var(--font-sans);
+}
+.rs-map.rs-over-square,
+.rs-map.rs-dragging {
+  cursor: move;
+}
+.rs-map.rs-dragging * {
+  cursor: move !important;
+}
+.rs-map .leaflet-control-attribution {
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  color: var(--muted);
+  font-size: 10px;
+}
+.rs-map .leaflet-control-attribution a {
+  color: var(--accent-text);
+}
+.rs-cross {
+  background: none;
+  border: 0;
+  pointer-events: none;
+}
+.rs-cross span {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.rs-cross span::before,
+.rs-cross span::after {
+  content: '';
+  position: absolute;
+  background: #2563eb;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+}
+.rs-cross span::before {
+  left: 13px;
+  top: 4px;
+  width: 2px;
+  height: 20px;
+}
+.rs-cross span::after {
+  top: 13px;
+  left: 4px;
+  height: 2px;
+  width: 20px;
+}
+.rs-label-wrap,
+.rs-pin-wrap {
+  background: none;
+  border: 0;
+  pointer-events: none;
+}
+.rs-label {
+  position: absolute;
+  left: -1px;
+  bottom: 6px;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 14px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+  font-variant-numeric: tabular-nums;
+}
+.rs-label span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.rs-pin {
+  position: absolute;
+  left: -13px;
+  top: -34px;
+  filter: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.35));
+}
+.rs-hint {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  color: var(--body);
+  font-size: 11px;
+}

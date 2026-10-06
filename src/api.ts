@@ -83,6 +83,28 @@ export interface LockInfo {
   consistency_after: number;
 }
 
+/** Sentinel-2 scene the backend picked for a map-area request. */
+export interface SourceScene {
+  item_id: string;
+  date: string;
+  satellite: string;
+  tile_id: string;
+  cloud_cover: number;
+  window_cloud_fraction: number;
+  processing_baseline?: string | null;
+  relaxed_cloud?: boolean;
+}
+
+export interface AreaParams {
+  lat: number;
+  lon: number;
+  size_px: 256 | 512;
+  date_from: string | null;
+  date_to: string | null;
+  max_cloud: number;
+  name: string | null;
+}
+
 export interface SuperresResult {
   id: string;
   input: ImageInfo;
@@ -98,6 +120,7 @@ export interface SuperresResult {
   alphaearth?: AlphaEarthInfo | null;
   confidence?: ConfidenceInfo | null;
   lock?: LockInfo | null;
+  source_scene?: SourceScene | null;
 }
 
 /** Resolve a backend path (relative or absolute) to an absolute URL. */
@@ -113,6 +136,11 @@ export function sampleThumbUrl(id: string): string {
 
 export function outputTifUrl(result: SuperresResult): string {
   return absUrl(`/api/results/${result.id}/output.tif`);
+}
+
+/** The 10 m Sentinel-2 input GeoTIFF, only served for map-area results. */
+export function inputTifUrl(result: SuperresResult): string {
+  return absUrl(`/api/results/${result.id}/input.tif`);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -148,3 +176,10 @@ export function superresUpload(file: File): Promise<SuperresResult> {
   form.append('file', file, file.name);
   return request<SuperresResult>('/api/superres', { method: 'POST', body: form });
 }
+
+export const superresArea = (params: AreaParams) =>
+  request<SuperresResult>('/api/area/superres', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });

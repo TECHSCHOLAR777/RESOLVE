@@ -1,4 +1,4 @@
-import { absUrl, outputTifUrl, type SuperresResult } from '../api';
+import { absUrl, inputTifUrl, outputTifUrl, type SuperresResult } from '../api';
 
 function saveBlob(blob: Blob, filename: string) {
   const href = URL.createObjectURL(blob);
@@ -42,6 +42,10 @@ export function downloadTif(result: SuperresResult, name = 'resolve'): Promise<v
   return downloadUrl(outputTifUrl(result), `${slug(name)}-2p5m.tif`);
 }
 
+export function downloadInputTif(result: SuperresResult, name = 'resolve'): Promise<void> {
+  return downloadUrl(inputTifUrl(result), `${slug(name)}-10m-input.tif`);
+}
+
 export function downloadMetadataJson(result: SuperresResult, name: string): void {
   const payload = {
     name,
@@ -53,6 +57,7 @@ export function downloadMetadataJson(result: SuperresResult, name: string): void
     input: { width: result.input.width, height: result.input.height },
     output: { width: result.output.width, height: result.output.height },
     scene: result.scene ?? null,
+    source_scene: result.source_scene ?? null,
     patches: result.patches ?? null,
     confidence: result.confidence ?? null,
     lock: result.lock ?? null,

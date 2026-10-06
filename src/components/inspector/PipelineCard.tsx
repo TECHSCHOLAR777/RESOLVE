@@ -1,25 +1,27 @@
 import { Check, ListChecks } from 'lucide-react';
 import type { SuperresResult } from '../../api';
-import { STAGE_TITLES, mapStageMs } from '../run/stageTimings';
+import { SEARCH_TITLE, STAGE_TITLES, mapStageMs, searchMs } from '../run/stageTimings';
 import { Card } from './ui';
 
 export const PIPELINE_STAGES = STAGE_TITLES;
 
 export default function PipelineCard({ result, loading }: { result: SuperresResult | null; loading?: boolean }) {
   const done = !!result;
-  const ms = mapStageMs(result?.stages);
+  const area = !!result?.source_scene;
+  const stages = area ? [SEARCH_TITLE, ...PIPELINE_STAGES] : PIPELINE_STAGES;
+  const ms = area ? [searchMs(result?.stages), ...mapStageMs(result?.stages)] : mapStageMs(result?.stages);
   return (
     <Card
       title="Pipeline"
       icon={<ListChecks size={13} aria-hidden />}
       action={
         <span className="text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
-          {done ? PIPELINE_STAGES.length : 0}/{PIPELINE_STAGES.length}
+          {done ? stages.length : 0}/{stages.length}
         </span>
       }
     >
       <ol className="space-y-1.5">
-        {PIPELINE_STAGES.map((name, i) => (
+        {stages.map((name, i) => (
           <li key={name} className="flex items-center gap-2.5 text-sm">
             <span
               className={`flex size-4 shrink-0 items-center justify-center rounded-full ${

@@ -6,9 +6,10 @@ import Drawer from './Drawer';
 import NavSidebar, { type NavKey } from './NavSidebar';
 import { useLayout } from './useBreakpoint';
 
-const PATHS: Record<NavKey, string> = { enhance: '/', results: '/results', help: '/help', settings: '/settings' };
+const PATHS: Record<NavKey, string> = { enhance: '/', map: '/map', results: '/results', help: '/help', settings: '/settings' };
 
 function activeKey(pathname: string): NavKey {
+  if (pathname.startsWith('/map')) return 'map';
   if (pathname.startsWith('/results')) return 'results';
   if (pathname.startsWith('/help')) return 'help';
   if (pathname.startsWith('/settings')) return 'settings';

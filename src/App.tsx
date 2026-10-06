@@ -11,17 +11,19 @@ import Workspace from './components/workspace/Workspace';
 
 const RunPage = lazy(() => import('./components/run/RunPage'));
 const MyResultsPage = lazy(() => import('./components/pages/MyResultsPage'));
+const MapPage = lazy(() => import('./components/map/MapPage'));
 const SettingsPage = lazy(() => import('./components/pages/SettingsPage'));
 const HelpPage = lazy(() => import('./components/pages/HelpPage'));
 const ReportPage = lazy(() => import('./components/pages/ReportPage'));
 
 function ResultsRoute() {
   const navigate = useNavigate();
-  const { openEntry, startSample, samples } = useRun();
+  const { openEntry, startSample, startArea, samples } = useRun();
   return (
     <MyResultsPage
       onOpen={openEntry}
       onRerunSample={(id) => startSample({ id, name: samples.find((s) => s.id === id)?.name ?? id })}
+      onRerunArea={startArea}
       onGoToWorkspace={() => navigate('/')}
     />
   );
@@ -44,6 +46,7 @@ export default function App() {
             <Route path="/report" element={<ReportRoute />} />
             <Route element={<AppShell />}>
               <Route path="/" element={<Workspace />} />
+              <Route path="/map" element={<MapPage />} />
               <Route path="/results" element={<ResultsRoute />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/help" element={<HelpPage />} />
